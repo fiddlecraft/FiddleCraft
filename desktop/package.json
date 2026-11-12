@@ -1,0 +1,63 @@
+{
+  "name": "shapeforge-desktop",
+  "productName": "FiddleCraft",
+  "version": "0.1.1",
+  "description": "FiddleCraft: a free, open-source 3D design app for everyone",
+  "license": "MIT",
+  "author": "FiddleCraft contributors",
+  "homepage": "https://github.com/fiddlecraft/FiddleCraft",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "prepare-web": "node prepare.cjs",
+    "appimage": "node prepare.cjs && electron-builder --linux AppImage --publish never"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "io.github.fiddlecraft.FiddleCraft",
+    "productName": "FiddleCraft",
+    "artifactName": "FiddleCraft-${version}-${arch}.AppImage",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "web/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Education",
+      "synopsis": "Free, open-source 3D design for everyone",
+      "desktop": {
+        "entry": {
+          "Name": "FiddleCraft",
+          "Comment": "Free, open-source 3D design",
+          "Keywords": "3D;CAD;design;modeling;printing;",
+          "MimeType": "application/x-fiddlecraft;application/x-shapeforge;"
+        }
+      },
+      "syncDesktopName": true
+    },
+    "fileAssociations": [
+      {
+        "ext": "fiddlecraft",
+        "name": "FiddleCraft design",
+        "mimeType": "application/x-fiddlecraft"
+      },
+      {
+        "ext": "shapeforge",
+        "name": "FiddleCraft design (older)",
+        "mimeType": "application/x-shapeforge"
+      }
+    ]
+  },
+  "desktopName": "fiddlecraft.desktop"
+}

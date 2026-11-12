@@ -1,0 +1,17 @@
+# installed packages and build output (made again by `npm install` and the build steps)
+node_modules/
+dist/
+desktop/node_modules/
+desktop/release/
+desktop/web/
+*.AppImage
+
+# local notes and old experiments, not part of the app
+docs/
+legacy-website/
+
+# editor and system clutter
+.DS_Store
+*.swp
+.vscode/
+.idea/
