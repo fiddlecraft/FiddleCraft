@@ -1,0 +1,99 @@
+# Builds FiddleCraft for Linux, Windows and macOS on GitHub's own computers.
+# Every push to main: the packages can be downloaded from the run's "Artifacts".
+# Pushing a version tag (for example v0.2.0): the packages are attached to a new Release.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux (AppImage, deb, rpm, Flatpak)
+            os: ubuntu-24.04
+            platform: linux
+          - name: Windows (installer and portable)
+            os: windows-latest
+            platform: win
+          - name: macOS (Apple silicon and Intel)
+            os: macos-latest
+            platform: mac
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Linux packaging tools
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 org.electronjs.Electron2.BaseApp//24.08
+
+      - name: Build the 3D workspace
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package the desktop app
+        working-directory: desktop
+        env:
+          # no paid signing certificates yet: Windows is unsigned, macOS is signed ad hoc
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm ci
+          npm run dist:${{ matrix.platform }}
+
+      - name: Self-test (Linux)
+        if: matrix.platform == 'linux'
+        working-directory: desktop
+        run: SHAPEFORGE_SELFTEST=1 xvfb-run -a npx electron . --no-sandbox
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FiddleCraft-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+            desktop/release/*.rpm
+            desktop/release/*.flatpak
+            desktop/release/*.exe
+            desktop/release/*.dmg
+            desktop/release/*.zip
+
+  release:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*
+          generate_release_notes: true

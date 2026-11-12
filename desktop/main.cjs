@@ -273,6 +273,16 @@ function createWindow(designPath) {
   return win;
 }
 
+// macOS hands over double-clicked design files with an event instead of the command line
+const isMac = process.platform === "darwin";
+let pendingOpen = null;
+app.on("open-file", (e, file) => {
+  e.preventDefault();
+  if (!/\.(fiddlecraft|shapeforge)$/i.test(file)) return;
+  if (app.isReady()) createWindow(file);
+  else pendingOpen = file;
+});
+
 const single = app.requestSingleInstanceLock();
 if (!single) {
   app.quit();
@@ -300,7 +310,20 @@ if (!single) {
       if (w) w.webContents.executeJavaScript(`window.shapeforgeApp && window.shapeforgeApp.${name}()`);
     };
     const key = (accelerator) => ({ accelerator, registerAccelerator: false });
+    // Editing keys: in a text box they edit the text, otherwise they act on shapes.
+    // macOS only delivers Cmd+C/V/X/Z/A through the menu, so there they are registered for real.
+    const typing = "(() => { const a = document.activeElement; return !!a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); })()";
+    const edit = (name, native, accelerator) => ({
+      ...(isMac ? { accelerator } : key(accelerator)),
+      click: async (_item, win) => {
+        const w = win || BrowserWindow.getFocusedWindow();
+        if (!w) return;
+        if (await w.webContents.executeJavaScript(typing).catch(() => false)) w.webContents[native]();
+        else act(name)(_item, w);
+      },
+    });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
+      ...(isMac ? [{ role: "appMenu" }] : []),
       { label: "File", submenu: [
         { label: "New design", click: act("newDesign") },
         { label: "Open design…", ...key("CmdOrCtrl+O"), click: act("open") },
@@ -313,19 +336,19 @@ if (!single) {
         { label: "Export as STL, OBJ, GLB or SVG…", ...key("CmdOrCtrl+E"), click: act("exportWindow") },
         { type: "separator" },
         { label: "New window", accelerator: "CmdOrCtrl+N", click: () => createWindow() },
-        { role: "quit" },
+        ...(isMac ? [{ role: "close" }] : [{ role: "quit" }]),
       ] },
       { label: "Edit", submenu: [
-        { label: "Undo", ...key("CmdOrCtrl+Z"), click: act("undo") },
-        { label: "Redo", ...key("CmdOrCtrl+Y"), click: act("redo") },
+        { label: "Undo", ...edit("undo", "undo", "CmdOrCtrl+Z") },
+        { label: "Redo", ...edit("redo", "redo", isMac ? "Cmd+Shift+Z" : "CmdOrCtrl+Y") },
         { type: "separator" },
-        { label: "Select all shapes", ...key("CmdOrCtrl+A"), click: act("selectAll") },
+        { label: "Select all shapes", ...edit("selectAll", "selectAll", "CmdOrCtrl+A") },
         { label: "Show hidden shapes", ...key("CmdOrCtrl+Shift+H"), click: act("showAll") },
         { label: "Save selection to My shapes…", click: act("saveToLibrary") },
         { type: "separator" },
-        { label: "Cut", ...key("CmdOrCtrl+X"), click: act("cut") },
-        { label: "Copy", ...key("CmdOrCtrl+C"), click: act("copy") },
-        { label: "Paste", ...key("CmdOrCtrl+V"), click: act("paste") },
+        { label: "Cut", ...edit("cut", "cut", "CmdOrCtrl+X") },
+        { label: "Copy", ...edit("copy", "copy", "CmdOrCtrl+C") },
+        { label: "Paste", ...edit("paste", "paste", "CmdOrCtrl+V") },
         { label: "Duplicate", ...key("CmdOrCtrl+D"), click: act("duplicate") },
         { label: "Delete shape", ...key("Delete"), click: act("remove") },
         { type: "separator" },
@@ -354,10 +377,11 @@ if (!single) {
         { type: "separator" },
         { role: "togglefullscreen" }, { role: "zoomIn" }, { role: "zoomOut" }, { role: "resetZoom" },
       ] },
+      ...(isMac ? [{ role: "windowMenu" }] : []),
       { label: "Help", submenu: [{ label: "Getting started", click: act("welcome") }, { label: "Keyboard and mouse", ...key("?"), click: act("help") }] },
     ]));
 
-    createWindow(designFromArgs(process.argv));
+    createWindow(pendingOpen || designFromArgs(process.argv));
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 

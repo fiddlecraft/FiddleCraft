@@ -1,16 +1,23 @@
 {
   "name": "shapeforge-desktop",
   "productName": "FiddleCraft",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "FiddleCraft: a free, open-source 3D design app for everyone",
   "license": "MIT",
-  "author": "FiddleCraft contributors",
+  "author": {
+    "name": "FiddleCraft contributors",
+    "email": "355991283+fiddlecraft@users.noreply.github.com",
+    "url": "https://github.com/fiddlecraft/FiddleCraft"
+  },
   "homepage": "https://github.com/fiddlecraft/FiddleCraft",
   "main": "main.cjs",
   "private": true,
   "scripts": {
     "prepare-web": "node prepare.cjs",
-    "appimage": "node prepare.cjs && electron-builder --linux AppImage --publish never"
+    "appimage": "node prepare.cjs && electron-builder --linux AppImage --x64 --publish never",
+    "dist:linux": "node prepare.cjs && electron-builder --linux --publish never",
+    "dist:win": "node prepare.cjs && electron-builder --win --publish never",
+    "dist:mac": "node prepare.cjs && electron-builder --mac --publish never"
   },
   "devDependencies": {
     "electron": "^39.0.0",
@@ -19,7 +26,7 @@
   "build": {
     "appId": "io.github.fiddlecraft.FiddleCraft",
     "productName": "FiddleCraft",
-    "artifactName": "FiddleCraft-${version}-${arch}.AppImage",
+    "artifactName": "FiddleCraft-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -31,7 +38,32 @@
     ],
     "linux": {
       "target": [
-        "AppImage"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "flatpak",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png",
       "category": "Education",
@@ -44,20 +76,102 @@
           "MimeType": "application/x-fiddlecraft;application/x-shapeforge;"
         }
       },
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "maintainer": "FiddleCraft contributors <355991283+fiddlecraft@users.noreply.github.com>",
+      "vendor": "FiddleCraft contributors"
     },
     "fileAssociations": [
       {
         "ext": "fiddlecraft",
         "name": "FiddleCraft design",
-        "mimeType": "application/x-fiddlecraft"
+        "mimeType": "application/x-fiddlecraft",
+        "role": "Editor"
       },
       {
         "ext": "shapeforge",
         "name": "FiddleCraft design (older)",
-        "mimeType": "application/x-shapeforge"
+        "mimeType": "application/x-shapeforge",
+        "role": "Editor"
       }
-    ]
+    ],
+    "appImage": {
+      "artifactName": "FiddleCraft-${version}-${arch}.AppImage"
+    },
+    "deb": {
+      "packageCategory": "graphics",
+      "priority": "optional"
+    },
+    "flatpak": {
+      "runtime": "org.freedesktop.Platform",
+      "runtimeVersion": "24.08",
+      "sdk": "org.freedesktop.Sdk",
+      "base": "org.electronjs.Electron2.BaseApp",
+      "baseVersion": "24.08",
+      "finishArgs": [
+        "--socket=wayland",
+        "--socket=fallback-x11",
+        "--share=ipc",
+        "--device=dri",
+        "--filesystem=home",
+        "--talk-name=org.freedesktop.Notifications"
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FiddleCraft",
+      "artifactName": "FiddleCraft-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "FiddleCraft-Portable-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.graphics-design",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "artifactName": "FiddleCraft-${version}-mac-${arch}.${ext}"
+    }
   },
   "desktopName": "fiddlecraft.desktop"
 }

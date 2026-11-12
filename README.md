@@ -13,13 +13,27 @@ A free, open-source 3D design app for everyone. Drag shapes onto the workplane, 
 - **Workspace settings:** background, shadows, grid, low power mode for older computers, camera speed, and millimetres or inches.
 - Designs save themselves as you work. **Save** and **Open** use `.fiddlecraft` files.
 
-## Download and run (Linux)
+## Download
 
-1. Download `FiddleCraft-<version>-x86_64.AppImage` from the Releases page.
-2. Make it runnable once: right-click it, open Properties, and turn on "Allow executing as program". Or run `chmod +x FiddleCraft-*.AppImage`.
-3. Double-click it.
+Get the latest version from the [Releases page](https://github.com/fiddlecraft/FiddleCraft/releases/latest).
 
-Windows, macOS and Flatpak versions are planned.
+| Computer | File to download |
+| --- | --- |
+| Windows (most PCs) | `FiddleCraft-Setup-<version>-x64.exe` (installer) or `FiddleCraft-Portable-<version>-x64.exe` (no install) |
+| Windows on ARM | `FiddleCraft-Setup-<version>-arm64.exe` |
+| Mac with Apple silicon (M1 and newer) | `FiddleCraft-<version>-mac-arm64.dmg` |
+| Mac with Intel | `FiddleCraft-<version>-mac-x64.dmg` |
+| Linux (any) | `FiddleCraft-<version>-x86_64.AppImage`, or `-arm64.AppImage` for ARM boards such as the Raspberry Pi |
+| Ubuntu, Debian, Mint | `FiddleCraft-<version>-linux-amd64.deb` (or `-arm64.deb`) |
+| Fedora, openSUSE | `FiddleCraft-<version>-linux-x86_64.rpm` |
+| Flatpak | `FiddleCraft-<version>-linux-x86_64.flatpak` |
+
+### First start
+
+- **Windows:** the app isn't signed with a paid certificate yet, so Windows may show "Windows protected your PC". Click **More info**, then **Run anyway**.
+- **macOS:** open the `.dmg` and drag FiddleCraft into Applications. The first time, macOS will say it can't check the app. Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to FiddleCraft, and confirm.
+- **AppImage:** make it runnable once (right-click → Properties → "Allow executing as program", or `chmod +x FiddleCraft-*.AppImage`), then double-click it.
+- **Flatpak:** `flatpak install --user FiddleCraft-*.flatpak`. You need the Flathub repository set up first.
 
 ## Build it yourself
 
@@ -31,8 +45,15 @@ npm run build        # builds the 3D workspace into dist/
 
 cd desktop
 npm install          # first time only
-npm run appimage     # makes desktop/release/FiddleCraft-<version>-x86_64.AppImage
+npm run appimage     # just the Linux AppImage, quickest
+npm run dist:linux   # AppImage, deb, rpm and Flatpak (needs rpm and flatpak-builder installed)
+npm run dist:win     # Windows installer and portable app (best run on Windows)
+npm run dist:mac     # macOS disk images (must be run on a Mac)
 ```
+
+The packages end up in `desktop/release/`.
+
+GitHub builds every version automatically on Linux, Windows and macOS (see `.github/workflows/build.yml`). To publish a release, push a version tag such as `v0.2.0`. The packages are then attached to a new release on the Releases page.
 
 ## How it's made
 
