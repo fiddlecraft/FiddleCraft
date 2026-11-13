@@ -28,7 +28,7 @@ jobs:
             os: windows-latest
             platform: win
           - name: macOS (Apple silicon and Intel)
-            os: macos-latest
+            os: macos-15-intel # Intel Mac machines are easier to get; they build both Mac versions
             platform: mac
     steps:
       - uses: actions/checkout@v4
