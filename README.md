@@ -8,7 +8,7 @@ A free, open-source 3D design app for everyone. Drag shapes onto the workplane, 
 - **Solids and holes:** turn any shape into a hole, group it with others, and it cuts itself out.
 - **Simple handles:** black squares resize, the cone lifts, and arrows turn. Everything follows the snap grid: 0.1 mm to 5 mm, inches, or Brick (8 mm studs, 3.2 mm plates).
 - **Align, mirror, ruler, workplanes, hide and lock**, plus undo and redo.
-- **Text** in several fonts, **scribble** drawing, and **pictures** (PNG, JPG) or **SVG drawings** turned into flat 3D shapes.
+- **Text** in several fonts, **scribble** drawing, and **Import photo**: PNG or JPG pictures (or SVG drawings) become a flat outline shape, or a shaded-height relief (lithophanes too).
 - **Export** to 3MF (keeps colours) and STL for 3D printing, OBJ and GLB, or SVG for laser cutters. A warning shows walls too thin to print.
 - **Workspace settings:** background, shadows, grid, low power mode for older computers, camera speed, and millimetres or inches.
 - Designs save themselves as you work. **Save** and **Open** use `.fiddlecraft` files.

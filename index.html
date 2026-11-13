@@ -27,7 +27,7 @@
       <button id="plane-tool" title="Put a workplane on any face, so new shapes land there (W)" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 15l10-5 10 5-10 5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 3v7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9 6l3-3 3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Workplane</span></button>
       <button id="ruler" title="Put a ruler on the workplane to measure and place shapes exactly"><svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Ruler</span></button>
       <button id="delete" title="Delete (Delete key)"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Delete</span></button>
-      <button id="view-home" title="Reset the view (H)"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 9v12h14V9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>View</span></button>
+      <button id="view-home" title="Home view: look at the workplane from the front corner again (H)"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 9v12h14V9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Home</span></button>
       <button id="help" title="Keyboard help (?)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5V14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg><span>Help</span></button>
     </div>
     <button id="export" class="ebar__export" title="Export as 3MF, STL, OBJ, GLB or SVG">Export</button>
@@ -37,7 +37,6 @@
     <div class="viewport" id="viewport" tabindex="0" aria-label="3D workplane. Use Tab to pick shapes, arrow keys to move them.">
       <div class="dims" id="dims" hidden></div>
       <div class="viewpad" role="toolbar" aria-label="Camera views">
-        <button type="button" data-view="home" title="Home view (H)">Home</button>
         <button type="button" data-view="fit" title="Zoom to fit the selection, or everything (F)">Fit</button>
         <button type="button" id="flat-view" aria-pressed="false" title="Flat view: no perspective, sizes don't shrink with distance (O)">Flat</button>
       </div>
@@ -163,12 +162,24 @@
     <form method="dialog" class="wpactions"><button type="button" class="ehelp__ok wpcancel" id="scribble-undo">Undo stroke</button><button type="button" class="ehelp__ok wpcancel" id="scribble-clear">Clear</button><button class="ehelp__ok wpcancel" value="cancel">Cancel</button><button class="ehelp__ok" id="scribble-done">Use this shape</button></form>
   </dialog>
   <dialog class="ehelp" id="picture-dialog" aria-labelledby="picture-title">
-    <h2 id="picture-title">Picture to shape</h2>
-    <p class="ehelp__note">The dark parts of the picture become a flat shape. Move the slider until the pink preview looks right.</p>
+    <h2 id="picture-title">Photo to shape</h2>
+    <div class="photomode" role="radiogroup" aria-label="What to make">
+      <label><input type="radio" name="photo-mode" id="photo-mode-flat" value="flat" checked /> <b>Flat outline</b><span>The dark parts become a flat shape. Best for logos and drawings.</span></label>
+      <label><input type="radio" name="photo-mode" id="photo-mode-relief" value="relief" /> <b>Shaded heights</b><span>Darker parts stand taller on a plate. Best for photos and shading.</span></label>
+    </div>
     <canvas id="picture-canvas" class="scribble__canvas" width="360" height="300" aria-label="Preview of the shape"></canvas>
-    <div class="picture__opts">
+    <div class="picture__opts" id="flat-opts">
       <label>Light or dark cut-off <input type="range" id="picture-cut" min="5" max="250" step="1" value="128" /></label>
       <label><input type="checkbox" id="picture-invert" /> Use the light parts instead</label>
+    </div>
+    <div class="picture__opts" id="relief-opts" hidden>
+      <label><input type="checkbox" id="relief-light" /> Light parts stand taller</label>
+      <label>Height steps <input type="range" id="relief-levels" min="0" max="10" step="1" value="0" /> <span id="relief-levels-text">Smooth</span></label>
+      <label>Base plate <input type="number" id="relief-base" min="0" max="50" step="0.1" value="1" /> <span class="u-len">mm</span>
+        &nbsp; Tallest <input type="number" id="relief-top" min="0.5" max="100" step="0.1" value="4" /> <span class="u-len">mm</span></label>
+      <label><button type="button" class="photopreset" id="relief-litho">Lithophane settings</button><small>A thin white plate that shows the photo when held up to light.</small></label>
+    </div>
+    <div class="picture__opts">
       <label>Longest side <input type="number" id="picture-size" min="5" max="400" step="1" value="60" /> <span class="u-len">mm</span></label>
     </div>
     <form method="dialog" class="wpactions"><button class="ehelp__ok wpcancel" value="cancel">Cancel</button><button class="ehelp__ok" id="picture-done">Use this shape</button></form>

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 
@@ -646,6 +646,78 @@ function terrain(o) {
   return g;
 }
 
+// ---------- Photo relief: a plate whose height follows the shades of a picture ----------
+// s.grid = { id, w, h, v } where v is base64 bytes, one per picture point: 0 = lowest, 255 = tallest.
+const gridCache = new Map();
+function gridBytes(g) {
+  const key = g.id || g.v.slice(0, 64);
+  if (!gridCache.has(key)) {
+    const bin = atob(g.v), out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    if (gridCache.size > 20) gridCache.clear();
+    gridCache.set(key, out);
+  }
+  return gridCache.get(key);
+}
+function relief(o) {
+  const g = o.grid;
+  if (!g || !g.w || !g.h || !g.v) return new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+  const W = g.w, H = g.h, data = gridBytes(g);
+  const base = Math.min(95, Math.max(0, o.base == null ? 20 : o.base)) / 100;
+  const levels = Math.max(0, Math.round(o.levels || 0));
+  const hAt = (i, j) => {
+    let t = data[Math.min(H - 1, Math.max(0, j)) * W + Math.min(W - 1, Math.max(0, i))] / 255;
+    if (levels) t = Math.round(t * levels) / levels;
+    return Math.max(0.01, base + (1 - base) * t);
+  };
+  const pos = [];
+  const v3 = new THREE.Vector3(), w3 = new THREE.Vector3();
+  // a four-cornered face, turned so it faces the given way
+  const quad = (a, b, c, d, n) => {
+    v3.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]); w3.set(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
+    const flip = v3.cross(w3).dot(n) < 0;
+    if (flip) pos.push(...a, ...c, ...b, ...a, ...d, ...c); else pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+  };
+  const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0);
+  const XP = new THREE.Vector3(1, 0, 0), XN = new THREE.Vector3(-1, 0, 0), ZP = new THREE.Vector3(0, 0, 1), ZN = new THREE.Vector3(0, 0, -1);
+  if (levels) {
+    // steps: every picture point is a flat-topped column, like stacked layers
+    const X = (i) => i / W - 0.5, Z = (j) => j / H - 0.5;
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      const h = hAt(i, j);
+      quad([X(i), h, Z(j)], [X(i + 1), h, Z(j)], [X(i + 1), h, Z(j + 1)], [X(i), h, Z(j + 1)], UP);
+      quad([X(i), 0, Z(j)], [X(i + 1), 0, Z(j)], [X(i + 1), 0, Z(j + 1)], [X(i), 0, Z(j + 1)], DOWN);
+      // walls towards the right and the front neighbour (or the outside)
+      const hr = i + 1 < W ? hAt(i + 1, j) : 0;
+      if (hr !== h) quad([X(i + 1), hr, Z(j)], [X(i + 1), h, Z(j)], [X(i + 1), h, Z(j + 1)], [X(i + 1), hr, Z(j + 1)], h > hr ? XP : XN);
+      const hf = j + 1 < H ? hAt(i, j + 1) : 0;
+      if (hf !== h) quad([X(i), hf, Z(j + 1)], [X(i), h, Z(j + 1)], [X(i + 1), h, Z(j + 1)], [X(i + 1), hf, Z(j + 1)], h > hf ? ZP : ZN);
+      if (i === 0) quad([X(0), 0, Z(j)], [X(0), h, Z(j)], [X(0), h, Z(j + 1)], [X(0), 0, Z(j + 1)], XN);
+      if (j === 0) quad([X(i), 0, Z(0)], [X(i), h, Z(0)], [X(i + 1), h, Z(0)], [X(i + 1), 0, Z(0)], ZN);
+    }
+  } else {
+    // smooth: one point per picture point, joined into a gently sloping surface
+    const X = (i) => i / Math.max(1, W - 1) - 0.5, Z = (j) => j / Math.max(1, H - 1) - 0.5;
+    const T = (i, j) => [X(i), hAt(i, j), Z(j)], B = (i, j) => [X(i), 0, Z(j)];
+    for (let j = 0; j < H - 1; j++) for (let i = 0; i < W - 1; i++) {
+      pos.push(...T(i, j), ...T(i, j + 1), ...T(i + 1, j), ...T(i + 1, j), ...T(i, j + 1), ...T(i + 1, j + 1));
+      pos.push(...B(i, j), ...B(i + 1, j), ...B(i, j + 1), ...B(i + 1, j), ...B(i + 1, j + 1), ...B(i, j + 1));
+    }
+    for (let i = 0; i < W - 1; i++) {
+      quad(B(i, 0), T(i, 0), T(i + 1, 0), B(i + 1, 0), ZN);
+      quad(B(i, H - 1), T(i, H - 1), T(i + 1, H - 1), B(i + 1, H - 1), ZP);
+    }
+    for (let j = 0; j < H - 1; j++) {
+      quad(B(0, j), T(0, j), T(0, j + 1), B(0, j + 1), XN);
+      quad(B(W - 1, j), T(W - 1, j), T(W - 1, j + 1), B(W - 1, j + 1), XP);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  // smooth reliefs share their corners so the light falls softly over the slopes
+  return levels ? geo : mergeVertices(geo);
+}
+
 // A setting shown as a slider: key, label, unit, range and starting value
 const P = (key, label, min, max, step, value, unit = "") => ({ key, label, min, max, step, value, unit });
 const SIDES = (value = 64) => P("sides", "Sides", 3, 64, 1, value);
@@ -709,6 +781,8 @@ export const SHAPES = {
   airfoil:  { label: "Wing section", size: [40, 30, 6], color: "#c4c9d0", make: airfoil, params: [P("thick", "Thickness", 4, 40, 1, 12, "%")] },
   channel:  { label: "Marble channel", size: [20, 50, 12], color: "#e0a85a", make: channel, params: [P("groove", "Groove size", 30, 90, 1, 70, "%")] },
   donutslice: { label: "Donut slice", size: [30, 30, 9], color: "#e8306e", make: donutSlice, params: [P("angle", "Angle", 10, 359, 1, 90, "°")] },
+  relief:   { label: "Photo relief", size: [60, 60, 4], color: "#f5f5f5", make: relief, drawn: true,
+    params: [P("base", "Base plate", 0, 90, 1, 20, "%"), P("levels", "Height steps (0 = smooth)", 0, 20, 1, 0)] },
   terrain:  { label: "Terrain", size: [60, 60, 14], color: "#5c8f3a", make: terrain, params: [P("rough", "Roughness", 0, 100, 1, 50, "%"), P("seed", "Pattern", 1, 99, 1, 1)] },
   // Geometry
   tetrahedron: { label: "Tetrahedron", size: [20, 17.32, 16.33], color: "#f2c230", make: () => new THREE.ConeGeometry(0.5, 1, 3) },
@@ -757,6 +831,7 @@ export function geometryFor(type, s) {
   let key = type + paramsOf(type).map((p) => "|" + full[p.key]).join("");
   if (def.drawn && s && s.path) key += "|" + JSON.stringify(s.path);
   if (def.drawn && s && s.loops) key += "|" + JSON.stringify(s.loops);
+  if (s && s.grid) key += "|" + (s.grid.id || s.grid.v.slice(0, 64)) + "|" + s.grid.w + "x" + s.grid.h;
   if (def.textKey && s) key += "|" + (s.text || "");
   const sized = typeof def.sized === "function" ? def.sized(full) : def.sized;
   if (sized && s) key += `|${(+s.w).toFixed(1)}|${(+s.d).toFixed(1)}|${(+s.h).toFixed(1)}`;
@@ -811,6 +886,7 @@ export const ICONS = {
   airfoil: '<path d="M4 23c4-9 18-10 36-2-18 3-32 4-36 2z" fill="#c4c9d0" stroke="#6b7280"/>',
   channel: '<path d="M6 14h32v24H6z" fill="#e0a85a"/><path d="M12 14a10 10 0 0 0 20 0z" fill="#a0683a"/>',
   donutslice: '<path d="M8 36A28 28 0 0 1 36 8v11a17 17 0 0 0-17 17z" fill="#e8306e"/>',
+  relief: '<path d="M4 30h36v6H4z" fill="#cfd6de"/><path d="M4 30l5-8 4 4 6-12 5 9 4-5 5 6 7-3v9z" fill="#8a96a3"/>',
   terrain: '<path d="M3 34l8-12 6 6 8-14 7 9 9-5v16z" fill="#5c8f3a"/><path d="M3 34h38v5H3z" fill="#8a6a3a"/><path d="M25 14l-3 5 3-1 2 2z" fill="#fff"/>',
   tetrahedron: '<path d="M22 6L6 36h32z" fill="#f2c230"/><path d="M22 6l6 30h10z" fill="#cf9c12"/>',
   arrow: '<path d="M4 17h20V8l16 14-16 14v-9H4z" fill="#1f8fe5"/>',

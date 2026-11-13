@@ -438,21 +438,67 @@ function drawScribble() {
   });
 })();
 
-// ---------- Pictures (PNG, JPG...): the dark parts become a flat shape ----------
+// ---------- Photos (PNG, JPG...): a flat outline of the dark parts, or shaded heights ----------
 const PICTURE_TYPES = /\.(png|jpe?g|gif|webp|bmp)$/i;
-let picture = null; // { img: ImageData, name, at }
+const RELIEF_MAX = 150; // points along the longest side of a photo relief: plenty for printing, still quick
+let picture = null; // { img: ImageData (outline work, up to 400 px), small: ImageData (heights), name, at }
+const photoMode = () => ($("#photo-mode-relief").checked ? "relief" : "flat");
 function pictureOutlines() {
   const { img } = picture;
   const mask = maskFromImage(img, Number($("#picture-cut").value), $("#picture-invert").checked);
   return outlinesFromMask(mask, img.width, img.height, { eps: 1, rounds: 1, minArea: 4 });
 }
+// the photo's shades as heights from 0 to 255, stretched so the darkest and lightest parts use the full range
+function reliefHeights() {
+  const { data, width: W, height: H } = picture.small;
+  const lightUp = $("#relief-light").checked;
+  const vals = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const a = data[i * 4 + 3] / 255;
+    const lum = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) * a + 255 * (1 - a);
+    vals[i] = lightUp ? lum : 255 - lum;
+  }
+  const sorted = Array.from(vals).sort((p, q) => p - q);
+  const lo = sorted[Math.floor(sorted.length * 0.01)], hi = sorted[Math.ceil(sorted.length * 0.99) - 1];
+  const span = Math.max(1, hi - lo);
+  const out = new Uint8Array(W * H);
+  const levels = Number($("#relief-levels").value);
+  for (let i = 0; i < W * H; i++) {
+    let t = Math.min(1, Math.max(0, (vals[i] - lo) / span));
+    if (levels) t = Math.round(t * levels) / levels;
+    out[i] = Math.round(t * 255);
+  }
+  return { W, H, out };
+}
 function drawPicturePreview() {
   const c = $("#picture-canvas"), g = c.getContext("2d");
-  const { img } = picture;
+  const relief = photoMode() === "relief";
+  $("#flat-opts").hidden = relief;
+  $("#relief-opts").hidden = !relief;
+  const lv = Number($("#relief-levels").value);
+  $("#relief-levels-text").textContent = lv ? `${lv} steps` : "Smooth";
+  const img = relief ? picture.small : picture.img;
   g.clearRect(0, 0, c.width, c.height);
   const k = Math.min(c.width / img.width, c.height / img.height);
   const ox = (c.width - img.width * k) / 2, oy = (c.height - img.height * k) / 2;
-  // the picture, faint, under the shape it makes
+  if (relief) {
+    // a lit-from-the-top-left picture of the heights, so you can see the bumps
+    const { W, H, out } = reliefHeights();
+    const shade = new ImageData(W, H);
+    const at = (x, y) => out[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))] / 255;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const dx = at(x + 1, y) - at(x - 1, y), dy = at(x, y + 1) - at(x, y - 1);
+      const light = Math.min(1, Math.max(0, 0.62 - dx * 2.2 - dy * 2.2 + at(x, y) * 0.25));
+      const v = Math.round(70 + light * 185), i = (y * W + x) * 4;
+      shade.data[i] = v; shade.data[i + 1] = v; shade.data[i + 2] = v; shade.data[i + 3] = 255;
+    }
+    const tmp = document.createElement("canvas"); tmp.width = W; tmp.height = H;
+    tmp.getContext("2d").putImageData(shade, 0, 0);
+    g.imageSmoothingEnabled = lv === 0;
+    g.drawImage(tmp, ox, oy, W * k, H * k);
+    return;
+  }
+  // the picture, faint, under the outline it makes
   const tmp = document.createElement("canvas"); tmp.width = img.width; tmp.height = img.height;
   tmp.getContext("2d").putImageData(img, 0, 0);
   g.globalAlpha = 0.3; g.drawImage(tmp, ox, oy, img.width * k, img.height * k); g.globalAlpha = 1;
@@ -461,34 +507,66 @@ function drawPicturePreview() {
   g.fillStyle = "rgba(232,48,110,.6)"; g.fill(path, "evenodd");
   g.strokeStyle = "#e8306e"; g.lineWidth = 1; g.stroke(path);
 }
-async function openPicture(file, at) {
-  let bmp;
-  try { bmp = await createImageBitmap(file); } catch { alert("That picture couldn't be opened. FiddleCraft reads PNG, JPG, GIF, WebP and BMP pictures."); return; }
-  // work on a copy no bigger than 400 pixels across: plenty of detail for a flat shape
-  const k = Math.min(1, 400 / Math.max(bmp.width, bmp.height));
-  const W = Math.max(1, Math.round(bmp.width * k)), H = Math.max(1, Math.round(bmp.height * k));
+const scaled = (bmp, max) => {
+  const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const W = Math.max(2, Math.round(bmp.width * k)), H = Math.max(2, Math.round(bmp.height * k));
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const g = c.getContext("2d", { willReadFrequently: true });
   g.drawImage(bmp, 0, 0, W, H);
-  picture = { img: g.getImageData(0, 0, W, H), name: file.name.replace(PICTURE_TYPES, "") || "Picture", at };
+  return g.getImageData(0, 0, W, H);
+};
+async function openPicture(file, at) {
+  let bmp;
+  try { bmp = await createImageBitmap(file); } catch { alert("That picture couldn't be opened. FiddleCraft reads PNG, JPG, GIF, WebP and BMP pictures."); return; }
+  picture = { img: scaled(bmp, 400), small: scaled(bmp, RELIEF_MAX), name: file.name.replace(PICTURE_TYPES, "") || "Photo", at };
   $("#picture-cut").value = String(autoThreshold(picture.img));
   $("#picture-invert").checked = false;
   $("#picture-size").value = String(Math.round(units.show(60) * 100) / 100);
+  $("#relief-base").value = String(Math.round(units.show(1) * 100) / 100);
+  $("#relief-top").value = String(Math.round(units.show(4) * 100) / 100);
   drawPicturePreview();
   $("#picture-dialog").showModal();
 }
-$("#picture-cut").addEventListener("input", () => picture && drawPicturePreview());
-$("#picture-invert").addEventListener("change", () => picture && drawPicturePreview());
+["#picture-cut", "#relief-levels"].forEach((id) => $(id).addEventListener("input", () => picture && drawPicturePreview()));
+["#picture-invert", "#relief-light", "#photo-mode-flat", "#photo-mode-relief"].forEach((id) => $(id).addEventListener("change", () => picture && drawPicturePreview()));
+$("#relief-litho").addEventListener("click", () => {
+  $("#photo-mode-relief").checked = true;
+  $("#relief-light").checked = false; // dark parts thick, so they let less light through
+  $("#relief-levels").value = "0";
+  $("#relief-base").value = String(Math.round(units.show(0.8) * 100) / 100);
+  $("#relief-top").value = String(Math.round(units.show(3) * 100) / 100);
+  $("#picture-size").value = String(Math.round(units.show(100) * 100) / 100);
+  picture.litho = true;
+  drawPicturePreview();
+  say("Lithophane settings: 0.8 mm thin parts, 3 mm thick parts, 100 mm wide. Print it upright in white.");
+});
+function bytesToBase64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return btoa(s);
+}
 $("#picture-done").addEventListener("click", (e) => {
   e.preventDefault();
   if (!picture) return;
-  const loops = pictureOutlines();
-  if (!loops.length) { alert("No shape found. Move the slider, or tick “Use the light parts instead”."); return; }
-  const n = normalizeLoops(loops);
   const longest = Math.max(1, units.read(Number($("#picture-size").value) || 60));
-  const k = longest / Math.max(n.spanX, n.spanY);
   const r1 = (v) => Math.max(0.5, Math.round(v * 10) / 10);
-  addShape("scribble", picture.at || null, { loops: n.loops, w: r1(n.spanX * k), d: r1(n.spanY * k), h: 3, name: picture.name, color: "#2e86de" });
+  if (photoMode() === "relief") {
+    const { W, H, out } = reliefHeights();
+    const base = Math.max(0, units.read(Number($("#relief-base").value) || 0));
+    const top = Math.max(base + 0.2, units.read(Number($("#relief-top").value) || 4));
+    const k = longest / Math.max(W, H);
+    addShape("relief", picture.at || null, {
+      grid: { id: `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, w: W, h: H, v: bytesToBase64(out) },
+      base: Math.round((base / top) * 100), levels: Number($("#relief-levels").value),
+      w: r1(W * k), d: r1(H * k), h: r1(top), name: picture.name, color: picture.litho ? "#ffffff" : "#d9dde3",
+    });
+  } else {
+    const loops = pictureOutlines();
+    if (!loops.length) { alert("No shape found. Move the slider, or tick “Use the light parts instead”."); return; }
+    const n = normalizeLoops(loops);
+    const k = longest / Math.max(n.spanX, n.spanY);
+    addShape("scribble", picture.at || null, { loops: n.loops, w: r1(n.spanX * k), d: r1(n.spanY * k), h: 3, name: picture.name, color: "#2e86de" });
+  }
   $("#picture-dialog").close();
   picture = null;
 });
@@ -554,7 +632,7 @@ async function importFile(file, at) {
 const stlPicker = document.createElement("input");
 stlPicker.type = "file";
 stlPicker.accept = ".stl,.svg,.png,.jpg,.jpeg,.gif,.webp,.bmp,model/stl,image/svg+xml,image/png,image/jpeg";
-// "Import drawing" in the shapes panel: pictures and SVG drawings only
+// "Import photo" in the shapes panel: pictures and SVG drawings only
 const drawingPicker = document.createElement("input");
 drawingPicker.type = "file";
 drawingPicker.accept = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml";
@@ -1854,7 +1932,7 @@ const CATEGORIES = [
   ["basic", "Basic shapes", [
     "holebox", "holecylinder", hole("sphere", "Hole sphere"), hole("cone", "Hole cone"),
     "box", "cylinder", "sphere", "scribble", "spun", "cone", "pyramid", "roof", "text",
-    { type: "import", label: "Import drawing", words: "image picture photo png jpg jpeg graphic svg file import logo trace",
+    { type: "import", label: "Import photo", words: "image picture photo png jpg jpeg graphic svg file import logo trace relief lithophane drawing",
       icon: '<rect x="6" y="8" width="32" height="28" rx="2" fill="#fff" stroke="#1f8fe5" stroke-width="2"/><path d="M9 33l9-11 6 7 4-4 7 8z" fill="#2fa24a"/><circle cx="30" cy="15" r="3.5" fill="#f2c230"/>' },
     "roundroof", "halfsphere", "torus", "tube", "ring", "wedge", "polygon", "icosahedron", "star", "heart", "roundedbox",
     "diamond", "paraboloid", "hexagon", "capsule", "bowl", kit("dice", "Dice", "die d6 game pips")]],
