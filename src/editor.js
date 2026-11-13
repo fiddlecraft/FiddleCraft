@@ -2843,6 +2843,16 @@ function toLocal(s, wx, wz) {
   return { x: wx * Math.cos(a) - wz * Math.sin(a), z: wx * Math.sin(a) + wz * Math.cos(a) };
 }
 
+// The space a shape takes up in the world, following its turn, tilt and roll.
+// quick: from the shape's outline box (good enough for placing handles every frame); exact: every corner.
+function worldBox(s, exact) {
+  const m = meshes.get(s.id);
+  if (!m) return null;
+  m.updateMatrixWorld();
+  if (exact) return new THREE.Box3().setFromObject(m);
+  if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+  return m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
+}
 function placeHandles() {
   const s = get(selected);
   handleGroup.visible = !!s && !s.locked && !s.hidden && picked.size <= 1 && !aligning && !(drag && drag.mode === "move");
@@ -2850,7 +2860,11 @@ function placeHandles() {
   HANDLES.forEach((h) => {
     let pos;
     if (h.top) pos = localPoint(s, 0, s.h + 4, 0);
-    else if (h.lift) pos = localPoint(s, 0, s.h, 0).add(new THREE.Vector3(0, 14, 0));
+    else if (h.lift) {
+      // always above the shape's highest point, so a tilted or upright shape never hides it
+      const b = worldBox(s), c = b ? b.getCenter(new THREE.Vector3()) : localPoint(s, 0, s.h, 0);
+      pos = new THREE.Vector3(c.x, Math.max(b ? b.max.y : c.y, localPoint(s, 0, s.h, 0).y) + 14, c.z);
+    }
     else if (h.rotate) {
       const o = toWorld(s, 0, s.d / 2 + 12); // just in front of the shape
       pos = new THREE.Vector3(s.x + o.x, s.y, s.z + o.z);
@@ -3982,7 +3996,13 @@ function showAll() {
 function dropToPlane() {
   const list = pickedShapes();
   if (!list.length) return;
-  list.forEach((s) => { s.y = 0; syncMesh(s); });
+  // the shape's lowest point goes onto the workplane (for a tilted or upright shape, that is not its base)
+  list.forEach((s) => {
+    syncMesh(s);
+    const b = worldBox(s, true);
+    s.y = Math.round((s.y - (b && Number.isFinite(b.min.y) ? b.min.y : s.y)) * 1000) / 1000;
+    syncMesh(s);
+  });
   refresh(true);
   commit();
   say(list.length === 1 ? `${list[0].name} is back on the workplane.` : `${list.length} shapes are back on the workplane.`);
