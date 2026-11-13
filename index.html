@@ -166,6 +166,7 @@
     <div class="photomode" role="radiogroup" aria-label="What to make">
       <label><input type="radio" name="photo-mode" id="photo-mode-flat" value="flat" checked /> <b>Flat outline</b><span>The dark parts become a flat shape. Best for logos and drawings.</span></label>
       <label><input type="radio" name="photo-mode" id="photo-mode-relief" value="relief" /> <b>Shaded heights</b><span>Darker parts stand taller on a plate. Best for photos and shading.</span></label>
+      <label><input type="radio" name="photo-mode" id="photo-mode-picture" value="picture" /> <b>Picture</b><span>The picture as it is, paper-thin, to trace over or design on. Not exported.</span></label>
     </div>
     <canvas id="picture-canvas" class="scribble__canvas" width="360" height="300" aria-label="Preview of the shape"></canvas>
     <div class="picture__opts" id="flat-opts">
@@ -216,7 +217,7 @@
       <label><input type="radio" name="export-what" id="export-all" checked /> Everything in the design</label>
       <label><input type="radio" name="export-what" id="export-selected" /> Only the selected shapes <span id="export-count"></span></label>
     </fieldset>
-    <p class="ehelp__note">Hidden shapes are left out, and hole shapes are cut out.</p>
+    <p class="ehelp__note">Hidden shapes are left out, and hole shapes are cut out.<span id="export-pictures" hidden> Pictures are left out too.</span></p>
     <div class="thincheck" id="export-thin" hidden><span id="export-thin-text"></span> <button type="button" id="export-thin-show" hidden>Show thin spots</button></div>
     <div class="exportformats">
       <button type="button" data-export="3mf"><b>.3MF</b><span>For 3D printing, keeps colours; best for modern slicers</span></button>

@@ -122,6 +122,7 @@ export function importedGeometry(id) {
 export function meshIds(list, out = new Set()) {
   for (const s of list) {
     if (s.type === "mesh" && s.mesh) out.add(s.mesh);
+    if (s.type === "picture" && s.image) out.add(s.image); // pictures keep their image the same way
     if (s.type === "group" && Array.isArray(s.children)) meshIds(s.children, out);
   }
   return out;

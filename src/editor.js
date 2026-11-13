@@ -223,9 +223,24 @@ function restore(json) {
   save();
 }
 
+// Pictures: the image on the top and bottom faces, plain edges, true colours (not lit)
+const pictureTextures = new Map();
+const isPicture = (s) => s && s.type === "picture";
+function pictureMaterials(s) {
+  let tex = pictureTextures.get(s.image);
+  if (tex === undefined) {
+    const url = meshData(s.image);
+    tex = url ? new THREE.TextureLoader().load(url, () => { if (typeof wake === "function") wake(600); }) : null;
+    if (tex) { tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; }
+    pictureTextures.set(s.image, tex);
+  }
+  const face = new THREE.MeshBasicMaterial({ map: tex, color: tex ? 0xffffff : 0xe5e7eb, transparent: true, alphaTest: 0.02 });
+  const edge = new THREE.MeshBasicMaterial({ color: 0xc9ced6, transparent: true });
+  return [edge, edge, face, face, edge, edge];
+}
 function buildMesh(s) {
-  const m = new THREE.Mesh(shapeGeometry(s), s.hole ? holeMat : solidMat(s.color));
-  m.castShadow = !s.hole;
+  const m = new THREE.Mesh(shapeGeometry(s), isPicture(s) ? pictureMaterials(s) : s.hole ? holeMat : solidMat(s.color));
+  m.castShadow = !s.hole && !isPicture(s);
   m.userData.id = s.id;
   meshes.set(s.id, m);
   scene.add(m);
@@ -236,9 +251,13 @@ function syncMesh(s) {
   const m = meshes.get(s.id);
   m.geometry = shapeGeometry(s);
   const multi = !s.hole && s.type === "group" && !!s.multicolor;
-  if (s.hole) m.material = holeMat;
+  if (isPicture(s)) {
+    const o = 1 - Math.min(90, Math.max(0, s.fade || 0)) / 100;
+    for (const mat of new Set(m.material)) { mat.opacity = o; mat.depthWrite = o >= 1; }
+    m.renderOrder = o < 1 ? 2 : 0;
+  } else if (s.hole) m.material = holeMat;
   else if (m.material === holeMat || !!m.material.vertexColors !== multi) { m.material = solidMat(s.color); m.material.vertexColors = multi; }
-  if (!s.hole) {
+  if (!s.hole && !isPicture(s)) {
     m.material.color.set(multi ? "#ffffff" : s.color); // a multicolour group shows its parts' own colours
     // See-through: only changes how it looks here; exported files are solid as usual
     const clear = !!s.clear;
@@ -442,7 +461,7 @@ function drawScribble() {
 const PICTURE_TYPES = /\.(png|jpe?g|gif|webp|bmp)$/i;
 const RELIEF_MAX = 150; // points along the longest side of a photo relief: plenty for printing, still quick
 let picture = null; // { img: ImageData (outline work, up to 400 px), small: ImageData (heights), name, at }
-const photoMode = () => ($("#photo-mode-relief").checked ? "relief" : "flat");
+const photoMode = () => ($("#photo-mode-relief").checked ? "relief" : $("#photo-mode-picture").checked ? "picture" : "flat");
 function pictureOutlines() {
   const { img } = picture;
   const mask = maskFromImage(img, Number($("#picture-cut").value), $("#picture-invert").checked);
@@ -472,8 +491,8 @@ function reliefHeights() {
 }
 function drawPicturePreview() {
   const c = $("#picture-canvas"), g = c.getContext("2d");
-  const relief = photoMode() === "relief";
-  $("#flat-opts").hidden = relief;
+  const relief = photoMode() === "relief", asPicture = photoMode() === "picture";
+  $("#flat-opts").hidden = relief || asPicture;
   $("#relief-opts").hidden = !relief;
   const lv = Number($("#relief-levels").value);
   $("#relief-levels-text").textContent = lv ? `${lv} steps` : "Smooth";
@@ -498,9 +517,10 @@ function drawPicturePreview() {
     g.drawImage(tmp, ox, oy, W * k, H * k);
     return;
   }
-  // the picture, faint, under the outline it makes
+  // the picture, faint, under the outline it makes (or just the picture)
   const tmp = document.createElement("canvas"); tmp.width = img.width; tmp.height = img.height;
   tmp.getContext("2d").putImageData(img, 0, 0);
+  if (asPicture) { g.drawImage(tmp, ox, oy, img.width * k, img.height * k); return; }
   g.globalAlpha = 0.3; g.drawImage(tmp, ox, oy, img.width * k, img.height * k); g.globalAlpha = 1;
   const path = new Path2D();
   for (const l of pictureOutlines()) { l.forEach(([x, y], i) => (i ? path.lineTo(ox + x * k, oy + y * k) : path.moveTo(ox + x * k, oy + y * k))); path.closePath(); }
@@ -518,7 +538,7 @@ const scaled = (bmp, max) => {
 async function openPicture(file, at) {
   let bmp;
   try { bmp = await createImageBitmap(file); } catch { alert("That picture couldn't be opened. FiddleCraft reads PNG, JPG, GIF, WebP and BMP pictures."); return; }
-  picture = { img: scaled(bmp, 400), small: scaled(bmp, RELIEF_MAX), name: file.name.replace(PICTURE_TYPES, "") || "Photo", at };
+  picture = { img: scaled(bmp, 400), small: scaled(bmp, RELIEF_MAX), bmp, name: file.name.replace(PICTURE_TYPES, "") || "Photo", at };
   $("#picture-cut").value = String(autoThreshold(picture.img));
   $("#picture-invert").checked = false;
   $("#picture-size").value = String(Math.round(units.show(60) * 100) / 100);
@@ -528,7 +548,7 @@ async function openPicture(file, at) {
   $("#picture-dialog").showModal();
 }
 ["#picture-cut", "#relief-levels"].forEach((id) => $(id).addEventListener("input", () => picture && drawPicturePreview()));
-["#picture-invert", "#relief-light", "#photo-mode-flat", "#photo-mode-relief"].forEach((id) => $(id).addEventListener("change", () => picture && drawPicturePreview()));
+["#picture-invert", "#relief-light", "#photo-mode-flat", "#photo-mode-relief", "#photo-mode-picture"].forEach((id) => $(id).addEventListener("change", () => picture && drawPicturePreview()));
 $("#relief-litho").addEventListener("click", () => {
   $("#photo-mode-relief").checked = true;
   $("#relief-light").checked = false; // dark parts thick, so they let less light through
@@ -550,7 +570,24 @@ $("#picture-done").addEventListener("click", (e) => {
   if (!picture) return;
   const longest = Math.max(1, units.read(Number($("#picture-size").value) || 60));
   const r1 = (v) => Math.max(0.5, Math.round(v * 10) / 10);
-  if (photoMode() === "relief") {
+  if (photoMode() === "picture") {
+    // the picture itself, no more than 1000 pixels across so design files stay a sensible size
+    const { bmp } = picture;
+    const k = Math.min(1, 1000 / Math.max(bmp.width, bmp.height));
+    const W = Math.max(1, Math.round(bmp.width * k)), H = Math.max(1, Math.round(bmp.height * k));
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(bmp, 0, 0, W, H);
+    const px = g.getImageData(0, 0, W, H).data;
+    let seeThrough = false;
+    for (let i = 3; i < px.length; i += 4) if (px[i] < 250) { seeThrough = true; break; }
+    const url = seeThrough ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.85); // keeps see-through parts
+    const id = `pic-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    try { storeMesh(id, url); } catch (err) { alert(err.message.replace("model", "picture")); return; }
+    const kk = longest / Math.max(W, H);
+    addShape("picture", picture.at || null, { image: id, w: r1(W * kk), d: r1(H * kk), h: 0.2, name: picture.name, color: "#ffffff" });
+    say(`${picture.name} added as a picture. Stretch, turn or tilt it like any shape; it is left out when you export.`);
+  } else if (photoMode() === "relief") {
     const { W, H, out } = reliefHeights();
     const base = Math.max(0, units.read(Number($("#relief-base").value) || 0));
     const top = Math.max(base + 0.2, units.read(Number($("#relief-top").value) || 4));
@@ -2421,6 +2458,7 @@ function setProp(key, value, noCommit) {
   if (!s) return;
   s[key] = value;
   if (key === "color" && s.multicolor) s.multicolor = false; // picking one colour paints the whole group
+  if (isPicture(s) && (key === "hole" || key === "color")) { s.hole = false; s.color = "#ffffff"; refresh(true); return; } // a picture keeps its own colours
   if (key === "hole" || key === "color") { if (key === "color") s.hole = false; meshes.get(s.id).material = s.hole ? holeMat : solidMat(s.color); }
   syncMesh(s);
   refresh(true);
@@ -2564,7 +2602,7 @@ function updateStatus() {
 function updateFitWarning() {
   const warn = $("#st-fit");
   if (!warn) return;
-  const solids = shapes.filter((s) => !s.hidden && !s.hole && meshes.has(s.id));
+  const solids = shapes.filter((s) => !s.hidden && !s.hole && !isPicture(s) && meshes.has(s.id));
   if (!solids.length) { warn.hidden = true; return; }
   const all = new THREE.Box3();
   solids.forEach((s) => { const m = meshes.get(s.id); m.updateMatrixWorld(); all.union(new THREE.Box3().setFromObject(m)); });
@@ -2582,7 +2620,7 @@ function updateFitWarning() {
 var thinCache = { key: "", result: null }; // var: the status bar can ask before this line runs
 var thinOverlay = null, thinOverlayKey = "", thinTimer = 0, thinSlow = false;
 function thinKey(list) { return workspace.thin + "|" + JSON.stringify(list); }
-function checkThin(list = shapes.filter((s) => !s.hidden)) {
+function checkThin(list = shapes.filter((s) => !s.hidden && !isPicture(s))) {
   if (!workspace.thin || !list.some((s) => !s.hole)) return null;
   const key = thinKey(list);
   if (thinCache.key === key) return thinCache.result;
@@ -2595,7 +2633,7 @@ function checkThin(list = shapes.filter((s) => !s.hidden)) {
   return r;
 }
 function showThinSpots() {
-  const list = shapes.filter((s) => !s.hidden);
+  const list = shapes.filter((s) => !s.hidden && !isPicture(s));
   const r = checkThin(list);
   hideThinSpots();
   if (!isWorthWarning(r)) { say("No thin walls found."); return; }
@@ -2620,7 +2658,7 @@ function scheduleThinCheck() {
   clearTimeout(thinTimer);
   const el = $("#st-thin");
   if (!el) return;
-  const list = shapes.filter((s) => !s.hidden);
+  const list = shapes.filter((s) => !s.hidden && !isPicture(s));
   if (thinOverlay && thinKey(list) !== thinOverlayKey) hideThinSpots();
   if (!workspace.thin || !list.some((s) => !s.hole)) { el.hidden = true; return; }
   if (thinCache.key === thinKey(list)) { showThinStatus(thinCache.result); return; }
@@ -2649,9 +2687,11 @@ function refresh(keepFocus) {
   $("#inspector").classList.toggle("is-locked", !!(s && s.locked));
   renderParams(s);
   $("#text-row").hidden = !(s && (s.type === "text" || s.type === "braille"));
+  document.querySelector(".inspector__mode").hidden = isPicture(s);
+  $("#swatches").hidden = isPicture(s);
   $("#multi-row").hidden = !(s && s.type === "group" && !s.hole);
   $("#f-multi").checked = !!(s && s.multicolor);
-  $("#clear-row").hidden = !(s && !s.hole);
+  $("#clear-row").hidden = !(s && !s.hole && !isPicture(s)); // pictures have their own see-through slider
   $("#f-clear").checked = !!(s && s.clear);
   if (s && (s.type === "text" || s.type === "braille") && document.activeElement !== $("#f-text")) $("#f-text").value = s.text || "Text";
   if (s) {
@@ -3449,8 +3489,10 @@ function showVersions() {
 }
 $("#versions").addEventListener("click", showVersions);
 
+// Pictures are guides for designing: every export leaves them out
+const exportable = (onlySelected) => shapes.filter((s) => !s.hidden && !isPicture(s) && (!onlySelected || picked.has(s.id)));
 function exportSTL(onlySelected) {
-  const shown = shapes.filter((s) => !s.hidden && (!onlySelected || picked.has(s.id)));
+  const shown = exportable(onlySelected);
   if (onlySelected && !shown.length) { say("Select the shapes to export first."); alert("Select the shapes you want to export first (click, or Ctrl+click for several)."); return; }
   if (!shown.some((s) => !s.hole)) { say("Add a solid shape first."); alert("Add at least one visible solid shape before exporting. Hidden shapes are left out."); return; }
   const g = sealedGeometry(combine(shown)); // seams sealed, so slicers need no repairs
@@ -3509,7 +3551,7 @@ function objText(parts) {
 async function exportAs(format, onlySelected) {
   if (format === "stl") return exportSTL(onlySelected);
   if (format === "svg") return exportSVG(onlySelected);
-  const shown = shapes.filter((s) => !s.hidden && (!onlySelected || picked.has(s.id)));
+  const shown = exportable(onlySelected);
   if (onlySelected && !shown.length) { alert("Select the shapes you want to export first (click, or Ctrl+click for several)."); return; }
   if (!shown.some((s) => !s.hole)) { alert("Add at least one visible solid shape before exporting. Hidden shapes are left out."); return; }
   const parts = colouredParts(shown);
@@ -3528,7 +3570,7 @@ async function exportAs(format, onlySelected) {
 }
 // SVG for laser cutters: the outline where the design meets the workplane, seen from the top
 function exportSVG(onlySelected) {
-  const shown = shapes.filter((s) => !s.hidden && (!onlySelected || picked.has(s.id)));
+  const shown = exportable(onlySelected);
   if (onlySelected && !shown.length) { alert("Select the shapes you want to export first (click, or Ctrl+click for several)."); return null; }
   if (!shown.some((s) => !s.hole)) { alert("Add at least one visible solid shape before exporting. Hidden shapes are left out."); return null; }
   const g = combine(shown);
@@ -3557,7 +3599,8 @@ function openExport() {
 }
 function exportThinCheck() {
   const box = $("#export-thin"), text = $("#export-thin-text"), show = $("#export-thin-show");
-  const list = shapes.filter((s) => !s.hidden);
+  const list = exportable(false);
+  $("#export-pictures").hidden = !shapes.some((s) => isPicture(s) && !s.hidden);
   if (!workspace.thin || !list.some((s) => !s.hole)) { box.hidden = true; return; }
   box.hidden = false; box.className = "thincheck"; show.hidden = true;
   text.textContent = "Checking for walls too thin to print…";
@@ -3583,8 +3626,8 @@ document.querySelectorAll("[data-export]").forEach((b) => b.addEventListener("cl
 // Group: join every shape into one, cutting out the holes (like gluing the pieces together)
 function groupAll() {
   // with two or more shapes selected, join just those; otherwise join everything
-  const list = picked.size >= 2 ? pickedShapes() : shapes;
-  if (list.length < 2) { say("Add at least two shapes to group them."); return; }
+  const list = (picked.size >= 2 ? pickedShapes() : shapes).filter((s) => !isPicture(s)); // pictures stay separate
+  if (list.length < 2) { say("Add at least two shapes to group them. Pictures can't be grouped."); return; }
   const children = JSON.parse(JSON.stringify(list));
   const g = combine(children);
   if (!g) { say("A group needs at least one solid shape."); return; }

@@ -781,6 +781,9 @@ export const SHAPES = {
   airfoil:  { label: "Wing section", size: [40, 30, 6], color: "#c4c9d0", make: airfoil, params: [P("thick", "Thickness", 4, 40, 1, 12, "%")] },
   channel:  { label: "Marble channel", size: [20, 50, 12], color: "#e0a85a", make: channel, params: [P("groove", "Groove size", 30, 90, 1, 70, "%")] },
   donutslice: { label: "Donut slice", size: [30, 30, 9], color: "#e8306e", make: donutSlice, params: [P("angle", "Angle", 10, 359, 1, 90, "°")] },
+  // a flat copy of a picture (the image itself is kept under s.image); only a guide, never exported
+  picture:  { label: "Picture", size: [60, 60, 0.2], color: "#ffffff", make: () => new THREE.BoxGeometry(1, 1, 1),
+    params: [P("fade", "See-through", 0, 90, 1, 0, "%")] },
   relief:   { label: "Photo relief", size: [60, 60, 4], color: "#f5f5f5", make: relief, drawn: true,
     params: [P("base", "Base plate", 0, 90, 1, 20, "%"), P("levels", "Height steps (0 = smooth)", 0, 20, 1, 0)] },
   terrain:  { label: "Terrain", size: [60, 60, 14], color: "#5c8f3a", make: terrain, params: [P("rough", "Roughness", 0, 100, 1, 50, "%"), P("seed", "Pattern", 1, 99, 1, 1)] },
@@ -886,6 +889,7 @@ export const ICONS = {
   airfoil: '<path d="M4 23c4-9 18-10 36-2-18 3-32 4-36 2z" fill="#c4c9d0" stroke="#6b7280"/>',
   channel: '<path d="M6 14h32v24H6z" fill="#e0a85a"/><path d="M12 14a10 10 0 0 0 20 0z" fill="#a0683a"/>',
   donutslice: '<path d="M8 36A28 28 0 0 1 36 8v11a17 17 0 0 0-17 17z" fill="#e8306e"/>',
+  picture: '<rect x="6" y="9" width="32" height="26" rx="2" fill="#fff" stroke="#6b7280" stroke-width="2"/><path d="M9 32l9-11 6 7 4-4 7 8z" fill="#2fa24a"/><circle cx="30" cy="16" r="3" fill="#ffb400"/>',
   relief: '<path d="M4 30h36v6H4z" fill="#cfd6de"/><path d="M4 30l5-8 4 4 6-12 5 9 4-5 5 6 7-3v9z" fill="#8a96a3"/>',
   terrain: '<path d="M3 34l8-12 6 6 8-14 7 9 9-5v16z" fill="#5c8f3a"/><path d="M3 34h38v5H3z" fill="#8a6a3a"/><path d="M25 14l-3 5 3-1 2 2z" fill="#fff"/>',
   tetrahedron: '<path d="M22 6L6 36h32z" fill="#f2c230"/><path d="M22 6l6 30h10z" fill="#cf9c12"/>',
