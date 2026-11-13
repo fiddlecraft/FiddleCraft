@@ -11,6 +11,7 @@ import { createRuler } from "./ruler.js";
 import { createSizeTags } from "./sizetags.js";
 import { createThumbs } from "./thumbs.js";
 import { units, BRICK, BRICK_UP, BRICK_HINT } from "./units.js";
+import { findThinSpots, isWorthWarning, make3MF, sealedGeometry } from "./printcheck.js";
 import { sliceOutlines, outlinesToSVG } from "./svgexport.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
@@ -2342,6 +2343,7 @@ function updateStatus() {
   $("#st-snap").textContent = st && opt ? `Snap: ${opt.textContent}${isBrick() ? ` (${units.text(BRICK)} across, ${units.text(BRICK_UP)} up)` : ""}` : "Snap: off";
   $("#st-units").textContent = `Units: ${units.name()}`;
   updateFitWarning();
+  if (typeof scheduleThinCheck === "function" && typeof workspace !== "undefined") scheduleThinCheck();
 }
 
 // Warn when part of the design hangs off the workplane (it may not fit the printer)
@@ -2361,6 +2363,67 @@ function updateFitWarning() {
     ? `⚠ The design (${Math.round(size.x)} × ${Math.round(size.z)} mm) is bigger than the workplane`
     : off ? "⚠ Part of the design is off the workplane" : "⚠ Part of the design is below the workplane";
 }
+
+// ---------- Thin walls: parts a 3D printer may not be able to make ----------
+var thinCache = { key: "", result: null }; // var: the status bar can ask before this line runs
+var thinOverlay = null, thinOverlayKey = "", thinTimer = 0, thinSlow = false;
+function thinKey(list) { return workspace.thin + "|" + JSON.stringify(list); }
+function checkThin(list = shapes.filter((s) => !s.hidden)) {
+  if (!workspace.thin || !list.some((s) => !s.hole)) return null;
+  const key = thinKey(list);
+  if (thinCache.key === key) return thinCache.result;
+  const t0 = performance.now();
+  const g = combine(list);
+  const r = g ? findThinSpots(g, workspace.thin) : null;
+  const ms = performance.now() - t0;
+  thinSlow = ms > 1200; // big designs: only check when exporting, so editing stays smooth
+  thinCache = { key, result: r };
+  return r;
+}
+function showThinSpots() {
+  const list = shapes.filter((s) => !s.hidden);
+  const r = checkThin(list);
+  hideThinSpots();
+  if (!isWorthWarning(r)) { say("No thin walls found."); return; }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(r.positions, 3));
+  thinOverlay = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xff1744, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+  thinOverlay.renderOrder = 5;
+  scene.add(thinOverlay);
+  thinOverlayKey = thinKey(list);
+  if (typeof wake === "function") wake(800);
+  say(`Thin walls (under ${units.text(workspace.thin)}) are shown in red. Make them thicker, or they may not print. The red goes away when you change the design or press Esc.`);
+}
+function hideThinSpots() {
+  if (!thinOverlay) return;
+  scene.remove(thinOverlay);
+  thinOverlay.geometry.dispose();
+  thinOverlay = null;
+  if (typeof wake === "function") wake(300);
+}
+// check a moment after the design stops changing, and say so in the status bar
+function scheduleThinCheck() {
+  clearTimeout(thinTimer);
+  const el = $("#st-thin");
+  if (!el) return;
+  const list = shapes.filter((s) => !s.hidden);
+  if (thinOverlay && thinKey(list) !== thinOverlayKey) hideThinSpots();
+  if (!workspace.thin || !list.some((s) => !s.hole)) { el.hidden = true; return; }
+  if (thinCache.key === thinKey(list)) { showThinStatus(thinCache.result); return; }
+  el.hidden = true;
+  if (thinSlow) return;
+  thinTimer = setTimeout(() => {
+    if (drag) { scheduleThinCheck(); return; }
+    showThinStatus(checkThin());
+  }, 1200);
+}
+function showThinStatus(r) {
+  const el = $("#st-thin");
+  el.hidden = !isWorthWarning(r);
+  if (!el.hidden) $("#st-thin-text").textContent = `⚠ Walls thinner than ${units.text(workspace.thin)} may not print`;
+}
+$("#st-thin-show").addEventListener("click", showThinSpots);
+window.addEventListener("keydown", (e) => { if (e.key === "Escape" && thinOverlay) hideThinSpots(); });
 
 function refresh(keepFocus) {
   if (typeof wake === "function") wake(1000);
@@ -3176,7 +3239,7 @@ function exportSTL(onlySelected) {
   const shown = shapes.filter((s) => !s.hidden && (!onlySelected || picked.has(s.id)));
   if (onlySelected && !shown.length) { say("Select the shapes to export first."); alert("Select the shapes you want to export first (click, or Ctrl+click for several)."); return; }
   if (!shown.some((s) => !s.hole)) { say("Add a solid shape first."); alert("Add at least one visible solid shape before exporting. Hidden shapes are left out."); return; }
-  const g = combine(shown);
+  const g = sealedGeometry(combine(shown)); // seams sealed, so slicers need no repairs
   g.rotateX(Math.PI / 2); // three.js is Y-up, printers are Z-up
   const data = new STLExporter().parse(new THREE.Mesh(g), { binary: true });
   const a = document.createElement("a");
@@ -3236,7 +3299,9 @@ async function exportAs(format, onlySelected) {
   if (onlySelected && !shown.length) { alert("Select the shapes you want to export first (click, or Ctrl+click for several)."); return; }
   if (!shown.some((s) => !s.hole)) { alert("Add at least one visible solid shape before exporting. Hidden shapes are left out."); return; }
   const parts = colouredParts(shown);
-  if (format === "obj") {
+  if (format === "3mf") {
+    download(await make3MF(parts, $("#project-name").value.trim() || "design"), "model/3mf", "3mf", onlySelected);
+  } else if (format === "obj") {
     download(objText(parts), "model/obj", "obj", onlySelected);
   } else {
     const group = new THREE.Group();
@@ -3274,7 +3339,28 @@ function openExport() {
   if (!some) $("#export-all").checked = true;
   $("#export-count").textContent = some ? `(${picked.size} shape${picked.size === 1 ? "" : "s"})` : "(select shapes first)";
   dlg.showModal();
+  exportThinCheck();
 }
+function exportThinCheck() {
+  const box = $("#export-thin"), text = $("#export-thin-text"), show = $("#export-thin-show");
+  const list = shapes.filter((s) => !s.hidden);
+  if (!workspace.thin || !list.some((s) => !s.hole)) { box.hidden = true; return; }
+  box.hidden = false; box.className = "thincheck"; show.hidden = true;
+  text.textContent = "Checking for walls too thin to print…";
+  setTimeout(() => {
+    const r = checkThin(list);
+    const limit = units.text(workspace.thin);
+    if (isWorthWarning(r)) {
+      box.className = "thincheck thincheck--warn";
+      text.textContent = `⚠ Some walls are thinner than ${limit}${r.thinnest ? ` (thinnest about ${units.text(r.thinnest, 2)})` : ""}. They may break or not print at all.`;
+      show.hidden = false;
+    } else {
+      box.className = "thincheck thincheck--ok";
+      text.textContent = `✓ No walls thinner than ${limit}.`;
+    }
+  }, 30);
+}
+$("#export-thin-show").addEventListener("click", () => { $("#export-dialog").close(); showThinSpots(); });
 document.querySelectorAll("[data-export]").forEach((b) => b.addEventListener("click", () => {
   $("#export-dialog").close();
   exportAs(b.dataset.export, $("#export-selected").checked);
@@ -3497,7 +3583,7 @@ showPlaneSize();
 
 // ---------- Workspace settings (bottom-right corner): Settings button, Snap Grid list, settings panel ----------
 const WS_KEY = "shapeforge-workspace";
-var workspace = { bg: "", shadows: true, grid: true, low: false, cruise: true, zoom: 1 }; // var: the workplane is first drawn before this line runs
+var workspace = { bg: "", shadows: true, grid: true, low: false, cruise: true, zoom: 1, thin: 0.8 }; // var: the workplane is first drawn before this line runs
 try { Object.assign(workspace, JSON.parse(localStorage.getItem(WS_KEY) || "{}")); } catch { /* defaults */ }
 const saveWorkspace = () => { try { localStorage.setItem(WS_KEY, JSON.stringify(workspace)); } catch { /* storage full */ } };
 function applyWorkspace() {
@@ -3571,7 +3657,7 @@ function syncWorkspaceSize() {
 function openWorkspace(focusSize) {
   $("#ws-bg").value = workspace.bg || "#f4f6f9";
   $("#ws-shadows").checked = workspace.shadows; $("#ws-grid").checked = workspace.grid; $("#ws-low").checked = workspace.low;
-  $("#ws-cruise").checked = workspace.cruise; $("#ws-zoom").value = workspace.zoom;
+  $("#ws-cruise").checked = workspace.cruise; $("#ws-zoom").value = workspace.zoom; $("#ws-thin").value = String(workspace.thin);
   syncWorkspaceSize();
   $("#ws-panel").hidden = false; $("#ws-open").setAttribute("aria-expanded", "true");
   (focusSize ? $("#ws-w") : $("#ws-x")).focus();
@@ -3588,6 +3674,12 @@ $("#ws-grid").addEventListener("change", (ev) => wsSet("grid", ev.target.checked
 $("#ws-low").addEventListener("change", (ev) => wsSet("low", ev.target.checked, ev.target.checked ? "Low power mode on: simpler drawing, no shadows." : "Low power mode off."));
 $("#ws-cruise").addEventListener("change", (ev) => wsSet("cruise", ev.target.checked, ev.target.checked ? "New shapes land on the shape under the pointer." : "New shapes land on the workplane."));
 $("#ws-zoom").addEventListener("input", (ev) => wsSet("zoom", Number(ev.target.value)));
+$("#ws-thin").addEventListener("change", (ev) => {
+  const v = Number(ev.target.value);
+  wsSet("thin", v, v ? `FiddleCraft will warn about walls thinner than ${units.text(v)}.` : "Thin wall warnings off.");
+  thinSlow = false;
+  scheduleThinCheck();
+});
 $("#ws-preset").addEventListener("change", (ev) => { if (ev.target.value === "custom") { $("#ws-w").focus(); return; } const [w, d] = ev.target.value.split("x").map(Number); setWorkplane(w, d); });
 const wsSize = () => setWorkplane(units.read(Number($("#ws-w").value)) || planeW, units.read(Number($("#ws-d").value)) || planeD);
 $("#ws-w").addEventListener("change", wsSize);
