@@ -718,6 +718,26 @@ function relief(o) {
   return levels ? geo : mergeVertices(geo);
 }
 
+// Shapes whose true proportions matter (dice and regular solids): the depth and height that go with a
+// given width, worked out from the shape as it rests on its face.
+const naturalCache = new Map();
+export function trueProportions(s) {
+  const def = SHAPES[s.type];
+  if (!def || !def.natural || !s.w) return s;
+  const full = withDefaults(s.type, s);
+  const key = s.type + "|" + paramsOf(s.type).map((p) => full[p.key]).join("|");
+  if (!naturalCache.has(key)) {
+    const g = def.make(full);
+    g.computeBoundingBox();
+    const b = g.boundingBox, nx = b.max.x - b.min.x;
+    naturalCache.set(key, { d: (b.max.z - b.min.z) / nx, h: (b.max.y - b.min.y) / nx });
+  }
+  const k = naturalCache.get(key), r = (v) => Math.round(v * 100) / 100;
+  s.d = r(s.w * k.d);
+  s.h = r(s.w * k.h);
+  return s;
+}
+
 // A setting shown as a slider: key, label, unit, range and starting value
 const P = (key, label, min, max, step, value, unit = "") => ({ key, label, min, max, step, value, unit });
 const SIDES = (value = 64) => P("sides", "Sides", 3, 64, 1, value);
@@ -769,7 +789,7 @@ export const SHAPES = {
   pie:      { label: "Circle slice", size: [20, 20, 4], color: "#16b6b0", make: pie,
     params: [P("angle", "Angle", 5, 359, 1, 45, "°"), P("inner", "Hollow middle", 0, 95, 1, 0, "%")] },
   frame:    { label: "Frame",    size: [40, 30, 4],  color: "#7a4a24", make: frame, params: [P("wall", "Frame width", 4, 90, 1, 20, "%")] },
-  polyhedron: { label: "Polyhedron", size: [20, 20, 20], color: "#2fa24a", make: polyhedron, params: [{ key: "kind", label: "Kind", value: "truncicosa", options: [
+  polyhedron: { label: "Polyhedron", size: [20, 20, 20], color: "#2fa24a", make: polyhedron, natural: true, params: [{ key: "kind", label: "Kind", value: "truncicosa", options: [
     ["tetra", "Tetrahedron (D4)"], ["cube", "Cube (D6)"], ["octa", "Octahedron (D8)"], ["d10", "Ten-sided (D10)"], ["dodeca", "Dodecahedron (D12)"], ["icosa", "Icosahedron (D20)"],
     ["trunctetra", "Truncated tetrahedron"], ["trunccube", "Truncated cube"], ["truncocta", "Truncated octahedron"], ["truncicosa", "Truncated icosahedron (football)"],
     ["cubocta", "Cuboctahedron"], ["icosidodeca", "Icosidodecahedron"], ["rhombicubocta", "Rhombicuboctahedron"], ["rhombicdodeca", "Rhombic dodecahedron"]] }] },

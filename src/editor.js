@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
-import { SHAPES, ICONS, PALETTE, paramsOf, brailleCells, brailleSize } from "./shapes.js";
-import { shapeGeometry, combine } from "./csg.js";
+import { SHAPES, ICONS, PALETTE, paramsOf, brailleCells, brailleSize, trueProportions } from "./shapes.js";
+import { shapeGeometry, combine, combineColoured } from "./csg.js";
 import { fontReady, onFontLoaded, textAspect } from "./text.js";
 import { importSTL, importSVG, storeMesh, meshData, meshIds } from "./imported.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
@@ -624,6 +624,7 @@ function addShape(type, at, extra) {
   if (def.hole) s.hole = true;
   for (const p of paramsOf(type)) s[p.key] = p.value;
   if (extra) Object.assign(s, extra);
+  trueProportions(s); // dice and regular solids keep their true shape
   shapes.push(s);
   buildMesh(s);
   select(s.id);
@@ -945,9 +946,11 @@ Object.assign(KITS, {
   },
   staroutline: () => [{ type: "star", w: 30, d: 30, h: 4, color: GOLD }, { type: "star", w: 21, d: 21, h: 6, y: -1, hole: true }],
   heartoutline: () => [{ type: "heart", w: 30, d: 30, h: 4, color: RED }, { type: "heart", w: 21, d: 21, h: 6, y: -1, z: -1, hole: true }],
+  // a shamrock: three heart-shaped leaves with their points meeting in the middle, and a curved stem.
+  // The leaves differ in height by a hair so their tops never lie exactly level (no flicker or gaps).
   clover: () => [
-    { type: "cylinder", w: 12, d: 12, h: 4, z: -5, color: GREEN }, { type: "cylinder", w: 12, d: 12, h: 4, x: -5, z: 3, color: GREEN },
-    { type: "cylinder", w: 12, d: 12, h: 4, x: 5, z: 3, color: GREEN }, { type: "box", w: 2.5, d: 10, h: 4, z: 11, r: 20, color: GREEN }],
+    ...[180, 60, 300].map((a, i) => { const t = (a * Math.PI) / 180; return { type: "heart", w: 13, d: 13, h: 4 + i * 0.03, x: Math.round(Math.sin(t) * 6.2 * 100) / 100, z: Math.round(Math.cos(t) * 6.2 * 100) / 100, r: a + 180, color: GREEN }; }),
+    { type: "box", w: 2.2, d: 9, h: 3.9, x: 1.2, z: 9.5, r: 18, color: GREEN }, { type: "cylinder", w: 3.4, d: 3.4, h: 3.95, color: GREEN }],
   fan: () => [{ type: "cylinder", w: 7, d: 7, h: 4, color: "#333333" },
     ...around(3, 8, (x, z, a) => ({ type: "box", w: 6, d: 13, h: 1.5, x, z, r: a, y: 1, color: "#333333" }))],
   book: () => [{ type: "box", w: 30, d: 22, h: 5, color: "#1f8fe5" }, { type: "box", w: 28, d: 21, h: 4, x: 1.2, y: 0.5, color: WHITE }],
@@ -1221,9 +1224,14 @@ Object.assign(KITS, {
   paddle: () => [{ type: "cylinder", w: 16, d: 16, h: 1.2, color: RED }, { type: "box", w: 3, d: 10, h: 2.4, z: 12, y: -0.6, color: WOOD }],
   drum: () => [{ type: "cylinder", w: 30, d: 30, h: 20, color: RED }, { type: "cylinder", w: 30.6, d: 30.6, h: 2, color: WHITE }, { type: "cylinder", w: 30.6, d: 30.6, h: 2, y: 18, color: WHITE },
     { type: "cylinder", w: 29.5, d: 29.5, h: 0.4, y: 20, color: CREAM }],
-  jackolantern: () => [...around(6, 4, (x, z, a) => ({ type: "sphere", steps: 14, w: 14, d: 22, h: 18, x, z, r: a, color: ORANGE })), { type: "cylinder", w: 3, d: 3, h: 6, y: 16, t: 10, color: GREEN },
-    { type: "pyramid", sides: 3, w: 4, d: 4, h: 6, x: -4, y: 10, z: 8, t: 90, hole: true }, { type: "pyramid", sides: 3, w: 4, d: 4, h: 6, x: 4, y: 10, z: 8, t: 90, hole: true },
-    { type: "box", w: 9, d: 6, h: 2.4, y: 4.5, z: 9, hole: true }],
+  // the yellow core comes first, so the cut-out face shows yellow, as if lit from inside
+  jackolantern: () => [{ type: "sphere", steps: 16, w: 16, d: 16, h: 12, y: 3, color: "#ffd23f" },
+    ...around(6, 4, (x, z, a) => ({ type: "sphere", steps: 14, w: 14, d: 22, h: 18, x, z, r: a, color: ORANGE })), { type: "cylinder", w: 3, d: 3, h: 6, y: 16, t: 10, color: GREEN },
+    // eyes and nose: triangles pointing up; mouth: a wide grin with turned-up corners. All reach right through the skin.
+    ...[-4.6, 4.6].map((x) => ({ type: "cylinder", sides: 3, w: 5.4, d: 5.4, h: 16, x, y: 11.2, z: 4, t: -90, l: 180, hole: true })),
+    { type: "cylinder", sides: 3, w: 3, d: 3, h: 16, y: 8, z: 4, t: -90, l: 180, hole: true },
+    { type: "box", w: 11, d: 16, h: 2.2, y: 3.4, z: 12, hole: true }, { type: "box", w: 7, d: 16, h: 1.2, y: 2.6, z: 12, hole: true },
+    ...[-5.2, 5.2].map((x) => ({ type: "box", w: 2.2, d: 16, h: 1.8, x, y: 4.8, z: 12, hole: true }))],
   keyboard: () => [{ type: "box", w: 56, d: 20, h: 4, color: DARK }, ...Array.from({ length: 14 }, (_, i) => ({ type: "box", w: 3.6, d: 14, h: 1.5, x: Math.round((-25.4 + i * 3.9) * 100) / 100, y: 4, z: 2, color: WHITE })),
     ...[0, 1, 3, 4, 5, 7, 8, 10, 11, 12].map((i) => ({ type: "box", w: 2.2, d: 8, h: 1.5, x: Math.round((-23.45 + i * 3.9) * 100) / 100, y: 5.5, z: -1, color: DARK }))],
   flag: () => [{ type: "cylinder", w: 1.6, d: 1.6, h: 40, color: SILVER },
@@ -1248,7 +1256,8 @@ Object.assign(KITS, {
   orange: () => [{ type: "sphere", w: 26, d: 26, h: 25, color: ORANGE }, { type: "cylinder", w: 3, d: 3, h: 1.4, y: 24.5, color: GREEN }],
   watermelon: () => [{ type: "sphere", w: 30, d: 40, h: 30, color: "#1f7a36" }],
   pineapple: () => [{ type: "sphere", w: 22, d: 22, h: 30, color: "#d9a420" }, ...around(7, 2, (x, z, a) => ({ type: "cone", w: 4, d: 2, h: 16, x, z, y: 26, r: a, t: 22, color: GREEN }))],
-  cheese: () => { const sl = slicePart(45, 15); return [sl(30, 0, { h: 16, color: "#f7d046" }), ...[[0, 5, 2], [3, 10, -3], [-2, 6, -10], [2, 12, -5]].map(([x, y, z]) => ({ type: "sphere", w: 5, d: 5, h: 5, x, y, z: z - 4, hole: true }))]; },
+  // holes break through the top, both cut sides and the rind, so they show (centre x, y, z and size)
+  cheese: () => { const sl = slicePart(45, 15); return [sl(30, 0, { h: 16, color: "#f7d046" }), ...[[0, 16, -2, 6], [3, 16, -9, 5], [8.3, 8, -5, 6], [-5.4, 4.5, 2, 5], [0, 10, -15, 6], [-4, 4, -14.6, 4.5], [-10.3, 12, -10, 4.5]].map(([x, cy, z, d]) => ({ type: "sphere", w: d, d, h: d, x, y: cy - d / 2, z, hole: true }))]; },
   popsicle: () => [{ type: "roundedbox", radius: 4, w: 20, d: 8, h: 34, y: 14, color: ORANGE }, { type: "box", w: 6, d: 1.6, h: 22, color: "#e8c89a" }],
   phone: () => [{ type: "roundedbox", radius: 3, w: 36, d: 74, h: 8, color: DARK }, { type: "box", w: 32, d: 66, h: 0.4, y: 8, color: "#2a72c8" }],
   laptop: () => [{ type: "box", w: 60, d: 40, h: 3, color: SILVER }, { type: "box", w: 52, d: 16, h: 0.4, y: 3, z: -6, color: DARK }, { type: "box", w: 60, d: 2, h: 38, z: -20, y: 2.4, t: -15, color: SILVER }],
@@ -1671,8 +1680,9 @@ const arm = (dir, len = 16, dia = 10, color = DOWEL) => {
   return { ...base, t: 90, r: a, y: 6, x: Math.round(Math.sin((a * Math.PI) / 180) * 6 * 100) / 100, z: Math.round(Math.cos((a * Math.PI) / 180) * 6 * 100) / 100 };
 };
 const hub = (dirs) => () => [{ type: "box", w: 12, d: 12, h: 12, color: DOWEL }, ...dirs.map((d) => arm(d))];
+// the top is trimmed off so a 12 mm ball snaps in through a 10.5 mm opening; the slot lets it flex
 const socketOf = (stem) => () => [{ type: "sphere", w: 16, d: 16, h: 16, y: stem, color: SOCK }, { type: "sphere", w: 12.4, d: 12.4, h: 12.4, y: stem + 4, hole: true },
-  { type: "box", w: 3, d: 20, h: 9, y: stem + 9, hole: true }, ...(stem ? [{ type: "cylinder", w: 8, d: 8, h: stem + 2, color: SOCK }] : [])];
+  { type: "box", w: 20, d: 20, h: 6, y: stem + 13.5, hole: true }, { type: "box", w: 3, d: 20, h: 9, y: stem + 9, hole: true }, ...(stem ? [{ type: "cylinder", w: 8, d: 8, h: stem + 2, color: SOCK }] : [])];
 const uniArm = (len) => () => [{ type: "cylinder", t: 90, w: 5, d: 5, h: len, y: 6, z: -len / 2, color: BALLC },
   { type: "sphere", w: 12, d: 12, h: 12, z: -len / 2 - 3, color: BALLC }, { type: "sphere", w: 12, d: 12, h: 12, z: len / 2 + 3, color: BALLC }];
 Object.assign(KITS, {
@@ -1923,7 +1933,7 @@ const KIT_ICONS = {
   cubeframe: '<path d="M8 14l14-7 14 7v16l-14 7-14-7z M12 16v12l10 5 10-5V16l-10-5z" fill="#e5352b" fill-rule="evenodd"/>',
   staroutline: '<path d="M22 5l4.5 11.5L38 17l-9 7.5 3 11.5-10-6.5L12 36l3-11.5L6 17l11.5-.5z M22 13l-2.6 6.6-6.6.3 5.2 4.3-1.7 6.6 5.7-3.7 5.7 3.7-1.7-6.6 5.2-4.3-6.6-.3z" fill="#f2c230" fill-rule="evenodd"/>',
   heartoutline: '<path d="M22 37C10 28 6 22 6 16a8 8 0 0 1 16-2 8 8 0 0 1 16 2c0 6-4 12-16 21z M22 30c7-6 10-10 10-14a4 4 0 0 0-8-1h-4a4 4 0 0 0-8 1c0 4 3 8 10 14z" fill="#e5352b" fill-rule="evenodd"/>',
-  clover: '<g fill="#2fa24a"><circle cx="22" cy="12" r="8"/><circle cx="13" cy="24" r="8"/><circle cx="31" cy="24" r="8"/><path d="M21 26h3l3 14h-3z"/></g>',
+  clover: '<g fill="#2fa24a"><path transform="translate(22 20) rotate(0) translate(0 -9)" d="M0 7C-8 1-10-5-5-7.5C-2.5-8.5 0-6.5 0-5C0-6.5 2.5-8.5 5-7.5C10-5 8 1 0 7Z"/><path transform="translate(22 20) rotate(120) translate(0 -9)" d="M0 7C-8 1-10-5-5-7.5C-2.5-8.5 0-6.5 0-5C0-6.5 2.5-8.5 5-7.5C10-5 8 1 0 7Z"/><path transform="translate(22 20) rotate(240) translate(0 -9)" d="M0 7C-8 1-10-5-5-7.5C-2.5-8.5 0-6.5 0-5C0-6.5 2.5-8.5 5-7.5C10-5 8 1 0 7Z"/><path d="M21 21q2 9 7 18l2.5-1q-5-8-6.5-17z"/></g>',
   fan: '<g fill="#333"><circle cx="22" cy="22" r="5"/><ellipse cx="22" cy="10" rx="5" ry="9"/><ellipse cx="22" cy="10" rx="5" ry="9" transform="rotate(120 22 22)"/><ellipse cx="22" cy="10" rx="5" ry="9" transform="rotate(240 22 22)"/></g>',
   book: '<rect x="6" y="8" width="30" height="30" rx="2" fill="#1f8fe5"/><rect x="10" y="10" width="28" height="28" fill="#fff" stroke="#c4c9d0"/><rect x="6" y="8" width="6" height="30" fill="#1675c0"/>',
   power: '<path d="M14 12a14 14 0 1 0 16 0" fill="none" stroke="#1f8fe5" stroke-width="5" stroke-linecap="round"/><path d="M22 4v16" stroke="#1f8fe5" stroke-width="5" stroke-linecap="round"/>',
@@ -2237,7 +2247,7 @@ const CATEGORIES = [
 ];
 // every shape type appears somewhere; anything not placed goes into "More"
 const listed = new Set(CATEGORIES.flatMap(([, , list]) => list.map((e) => (typeof e === "string" ? e : e.type))));
-const unlisted = Object.keys(SHAPES).filter((k) => !listed.has(k));
+const unlisted = Object.keys(SHAPES).filter((k) => !listed.has(k) && k !== "picture" && k !== "relief"); // those two come from Import photo
 if (unlisted.length) CATEGORIES.push(["more", "More shapes", unlisted]);
 const CATALOG_BY_KEY = {};
 function catalogItem(e) {
@@ -2275,7 +2285,7 @@ function addKit(item, at) {
   const children = KITS[item.kit]().map((c) => {
     const s = { id: nextId++, name: SHAPES[c.type].label, color: SHAPES[c.type].color, hole: false, x: 0, y: 0, z: 0, r: 0, t: 0, ...c };
     for (const p of paramsOf(s.type)) if (s[p.key] == null) s[p.key] = p.value;
-    return s;
+    return trueProportions(s);
   });
   const g = combine(children);
   if (!g) return;
@@ -2298,7 +2308,7 @@ function addKit(item, at) {
   say(`${grp.name} added. It is a group: Ungroup takes it apart.`);
 }
 let iconCount = 0;
-const thumbs = createThumbs({ shapeGeometry });
+const thumbs = createThumbs({ shapeGeometry, combineColoured });
 for (const [key, title, list] of CATEGORIES) {
   const sec = document.createElement("section");
   sec.className = "shapes__section";
@@ -2316,7 +2326,7 @@ for (const [key, title, list] of CATEGORIES) {
     const icon = item.glyph ? glyphIcon(item.glyph) : item.icon ? item.icon : item.holeIcon ? holeIconOf(item.type, ++iconCount) : ICONS[item.type];
     b.innerHTML = drawn ? `<img class="shape-thumb" alt="" width="44" height="44">${item.label}` : `<svg viewBox="0 0 44 44" aria-hidden="true">${icon}</svg>${item.glyph || item.compact ? "" : item.label}`;
     if (drawn) thumbs.attach(b.querySelector("img"), item.key, () => (item.kit ? KITS[item.kit]() : [{ type: item.type, ...item.extra }])
-      .map((c) => { const d = SHAPES[c.type]; const part = { w: d.size[0], d: d.size[1], h: d.size[2], color: d.color, ...c }; for (const q of paramsOf(c.type)) if (part[q.key] == null) part[q.key] = q.value; return part; }));
+      .map((c) => { const d = SHAPES[c.type]; const part = { w: d.size[0], d: d.size[1], h: d.size[2], color: d.color, ...c }; for (const q of paramsOf(c.type)) if (part[q.key] == null) part[q.key] = q.value; return trueProportions(part); }));
     b.setAttribute("aria-label", item.glyph ? `Add the character ${item.glyph}` : `Add ${item.compact ? "" : "a "}${item.label}`);
     b.title = item.glyph ? `Character ${item.glyph}` : item.label;
     b.dataset.type = item.type;
@@ -2457,6 +2467,7 @@ function setProp(key, value, noCommit) {
   const s = get(selected);
   if (!s) return;
   s[key] = value;
+  if (key === "kind" && SHAPES[s.type] && SHAPES[s.type].natural) trueProportions(s); // a new kind of solid: true proportions again
   if (key === "color" && s.multicolor) s.multicolor = false; // picking one colour paints the whole group
   if (isPicture(s) && (key === "hole" || key === "color")) { s.hole = false; s.color = "#ffffff"; refresh(true); return; } // a picture keeps its own colours
   if (key === "hole" || key === "color") { if (key === "color") s.hole = false; meshes.get(s.id).material = s.hole ? holeMat : solidMat(s.color); }
@@ -4236,4 +4247,4 @@ renderer.setAnimationLoop(() => {
 });
 
 // Read-only hook for automated tests
-window.__shapeforge = { frameStats, scene, renderer, sizeTags, standsOnTempPlane: (id) => standsOnTempPlane(get(id)), flatView: () => flatView, camera, controls, viewCube, ruler, tempPlane: () => tempPlane, placingPlane: () => placingPlane, canvas, handles: HANDLES, placeHandles, alignDots: ALIGN_DOTS, placeAlign, aligning: () => aligning, shapes: () => shapes, selected: () => selected, picked: () => [...picked], drag: () => drag && { mode: drag.mode, sx: drag.h && drag.h.sx, sz: drag.h && drag.h.sz } };
+window.__shapeforge = { kits: KITS, SHAPES, catalog: () => CATALOG_BY_KEY, combine, shapeGeometry, frameStats, scene, renderer, sizeTags, standsOnTempPlane: (id) => standsOnTempPlane(get(id)), flatView: () => flatView, camera, controls, viewCube, ruler, tempPlane: () => tempPlane, placingPlane: () => placingPlane, canvas, handles: HANDLES, placeHandles, alignDots: ALIGN_DOTS, placeAlign, aligning: () => aligning, shapes: () => shapes, selected: () => selected, picked: () => [...picked], drag: () => drag && { mode: drag.mode, sx: drag.h && drag.h.sx, sz: drag.h && drag.h.sz } };

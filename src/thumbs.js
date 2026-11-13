@@ -2,7 +2,7 @@
 // same angle as the home view, when its button first scrolls into sight.
 import * as THREE from "three";
 
-export function createThumbs({ shapeGeometry }) {
+export function createThumbs({ shapeGeometry, combineColoured }) {
   const SIZE = 112;
   let renderer = null, scene, camera;
   const cache = new Map();
@@ -22,8 +22,11 @@ export function createThumbs({ shapeGeometry }) {
     camera = new THREE.PerspectiveCamera(28, 1, 0.1, 10000);
   }
 
-  function meshFor(s) {
-    const m = new THREE.Mesh(shapeGeometry(s), new THREE.MeshStandardMaterial({ color: s.color || "#9aa0a8", roughness: 0.55, metalness: 0.05, transparent: !!s.clear, opacity: s.clear ? 0.6 : 1 }));
+  // i: the part's place in the list. Each part is drawn a hair in front of the one before, so where
+  // parts overlap at exactly the same height their faces don't flicker into rings and stripes.
+  function meshFor(s, i = 0) {
+    const m = new THREE.Mesh(shapeGeometry(s), new THREE.MeshStandardMaterial({ color: s.color || "#9aa0a8", roughness: 0.55, metalness: 0.05, transparent: !!s.clear, opacity: s.clear ? 0.6 : 1,
+      polygonOffset: i > 0, polygonOffsetFactor: -0.4 * i, polygonOffsetUnits: -2 * i }));
     m.scale.set(s.w, s.h, s.d);
     m.position.set(s.x || 0, s.y || 0, s.z || 0);
     m.rotation.set(THREE.MathUtils.degToRad(s.t || 0), THREE.MathUtils.degToRad(s.r || 0), THREE.MathUtils.degToRad(s.l || 0), "YXZ");
@@ -34,7 +37,15 @@ export function createThumbs({ shapeGeometry }) {
   function draw(parts) {
     if (!renderer) setup();
     const group = new THREE.Group();
-    parts.filter((p) => !p.hole).forEach((p) => group.add(meshFor(p)));
+    // with holes, cut them for real so faces, windows and slots show in the picture
+    let cut = null;
+    if (combineColoured && parts.some((p) => p.hole) && parts.some((p) => !p.hole)) {
+      try { cut = combineColoured(parts.map((p) => ({ x: 0, y: 0, z: 0, r: 0, t: 0, l: 0, ...p }))); } catch { cut = null; }
+      if (cut && !cut.attributes.position.count) cut = null;
+    }
+    if (cut) group.add(new THREE.Mesh(cut, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05 })));
+    else if (parts.some((p) => !p.hole)) parts.filter((p) => !p.hole).forEach((p, i) => group.add(meshFor(p, i)));
+    else parts.forEach((p, i) => group.add(meshFor({ ...p, color: "#9aa0a8" }, i))); // only holes: show them in grey
     scene.add(group);
     group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(group);
