@@ -227,10 +227,28 @@ function spring(s) {
   return mergeGeometries([coil, cap(0), cap(1)]);
 }
 
+// Several traced outlines (from Scribble or a picture) to shapes with their holes.
+// The biggest outline is an outside edge; outlines turning the same way are outside edges too,
+// the others are holes, each belonging to the smallest outside edge around it.
+function shapesFromLoops(loops) {
+  const signed = (l) => { let a = 0; for (let i = 0, j = l.length - 1; i < l.length; j = i++) a += (l[j].x - l[i].x) * (l[j].y + l[i].y); return a / 2; };
+  const inside = (p, l) => { let c = false; for (let i = 0, j = l.length - 1; i < l.length; j = i++) { const a = l[i], b = l[j]; if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) c = !c; } return c; };
+  const list = loops.filter((l) => l.length >= 3).map((l) => { const pts = l.map(([x, y]) => new THREE.Vector2(x - 0.5, 0.5 - y)); return { pts, a: signed(pts) }; });
+  if (!list.length) return [];
+  const big = list.reduce((m, l) => (Math.abs(l.a) > Math.abs(m.a) ? l : m));
+  const outs = list.filter((l) => Math.sign(l.a) === Math.sign(big.a)).map((l) => ({ ...l, shape: new THREE.Shape(l.pts) }));
+  for (const h of list.filter((l) => Math.sign(l.a) !== Math.sign(big.a))) {
+    const around = outs.filter((o) => inside(h.pts[0], o.pts)).sort((p, q) => Math.abs(p.a) - Math.abs(q.a))[0];
+    if (around) around.shape.holes.push(new THREE.Path(h.pts));
+  }
+  return outs.map((o) => o.shape);
+}
+
 function scribble(s) {
-  // the outline drawn by hand, stored as points from 0 to 1
+  // the outline drawn by hand, stored as points from 0 to 1 (or several outlines, with holes)
   const pts = (s && Array.isArray(s.path) && s.path.length >= 3) ? s.path : [[0, 0], [1, 0], [0.5, 1]];
-  const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x - 0.5, 0.5 - y)));
+  const traced = s && Array.isArray(s.loops) && s.loops.length ? shapesFromLoops(s.loops) : [];
+  const shape = traced.length ? traced : new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x - 0.5, 0.5 - y)));
   const taper = Math.min(200, Math.max(0, s && s.taper != null ? s.taper : 100)) / 100; // top size compared with the bottom
   const twist = THREE.MathUtils.degToRad(Math.min(720, Math.max(-720, (s && s.twist) || 0)));
   const plain = Math.abs(taper - 1) < 1e-6 && !twist;
@@ -738,6 +756,7 @@ export function geometryFor(type, s) {
   const full = withDefaults(type, s);
   let key = type + paramsOf(type).map((p) => "|" + full[p.key]).join("");
   if (def.drawn && s && s.path) key += "|" + JSON.stringify(s.path);
+  if (def.drawn && s && s.loops) key += "|" + JSON.stringify(s.loops);
   if (def.textKey && s) key += "|" + (s.text || "");
   const sized = typeof def.sized === "function" ? def.sized(full) : def.sized;
   if (sized && s) key += `|${(+s.w).toFixed(1)}|${(+s.d).toFixed(1)}|${(+s.h).toFixed(1)}`;

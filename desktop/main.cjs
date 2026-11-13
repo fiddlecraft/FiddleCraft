@@ -236,7 +236,7 @@ function createWindow(designPath) {
         await wait(300);
         const rulerInfo = await js("(() => { const ru = window.__shapeforge.ruler; ru.update(); return ru.origin ? 'at ' + ru.origin.x + ',' + ru.origin.z + ', distances ' + ru.fields.x.value + '/' + ru.fields.z.value : 'not placed'; })()");
         if (process.env.SHAPEFORGE_SHOT2) { const img = await win.webContents.capturePage(); require("fs").writeFileSync(process.env.SHAPEFORGE_SHOT2, img.toPNG()); }
-        await js("document.querySelector('[data-view=\"top\"]').click()");
+        await js("window.shapeforgeApp.view('top')"); // the view cube and the 1 key do this now
         await wait(700);
         const top = await js("(() => { const c = window.__shapeforge.camera.position; return Math.round(c.y) + ' up, ' + Math.round(Math.hypot(c.x, c.z)) + ' sideways'; })()");
         console.log(`SELFTEST input | click: ${one} selected | ctrl+click: ${two} selected | line-up panel shown: ${panel} | ctrl+A: ${all} of 3 selected | align: hover ${hovered}, dots ${aligned}, front edges after clicking a dot ${fronts} | ruler: ${rulerInfo} | top view camera: ${top}`);
@@ -328,7 +328,7 @@ if (!single) {
         { label: "New design", click: act("newDesign") },
         { label: "Open design…", ...key("CmdOrCtrl+O"), click: act("open") },
         { label: "Save design…", ...key("CmdOrCtrl+S"), click: act("save") },
-        { label: "Import STL model or SVG drawing…", click: act("importSTL") },
+        { label: "Import STL model, SVG drawing or picture…", click: act("importSTL") },
         { type: "separator" },
         { label: "Restore an earlier version…", click: act("versions") },
         { label: "Export for 3D printing (STL)…", click: act("exportSTL") },

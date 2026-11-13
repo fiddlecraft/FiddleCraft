@@ -26,6 +26,8 @@ button { cursor: pointer; }
 .ework { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 260px; position: relative; }
 .viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: linear-gradient(#ffffff, #e9eef5); touch-action: none; }
 .viewport canvas { display: block; width: 100%; height: 100%; }
+/* clicking or using keys in the 3D view must not draw a focus frame around it */
+.viewport:focus, .viewport:focus-visible { outline: none; }
 .hint { position: absolute; left: 16px; bottom: 16px; max-width: 460px; margin: 0; padding: 10px 14px; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 8px; font-size: 14px; color: var(--muted); pointer-events: none; }
 .dims { position: absolute; transform: translate(-50%, -100%); padding: 3px 8px; border-radius: 4px; background: var(--navy); color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
 
@@ -179,7 +181,8 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .wpbeds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .wpbeds button { height: 32px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .wpbeds button:hover { border-color: var(--blue); background: #f2f8ff; }
-.wpactions { display: flex; justify-content: flex-end; gap: 8px; }
+.wpactions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 8px; }
+.wpactions .ehelp__ok { white-space: nowrap; padding: 0 16px; }
 .wpcancel { background: #fff !important; color: var(--blue) !important; border: 2px solid var(--blue) !important; }
 
 .estatus__warn { color: #b45309; font-weight: 700; }
@@ -338,3 +341,10 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .wspanel__foot { display: flex; justify-content: flex-end; }
 .wspanel__close { height: 30px; padding: 0 14px; border: 1.5px solid #1f8fe5; border-radius: 4px; background: #fff; color: #1f6fc5; font: inherit; font-weight: 600; cursor: pointer; }
 .wspanel__wide:hover, .wspanel__close:hover { background: #eef5fd; }
+.scribble__pen { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font-size: 14px; color: var(--muted); }
+.scribble__pen[hidden] { display: none; }
+.scribble__pen input { flex: 1; }
+.picture__opts { display: grid; gap: 6px; margin: 6px 0 2px; font-size: 14px; color: var(--muted); }
+.picture__opts label { display: flex; align-items: center; gap: 8px; }
+.picture__opts input[type="range"] { flex: 1; }
+.picture__opts input[type="number"] { width: 70px; }

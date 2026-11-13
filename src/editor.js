@@ -12,6 +12,7 @@ import { createSizeTags } from "./sizetags.js";
 import { createThumbs } from "./thumbs.js";
 import { units, BRICK, BRICK_UP, BRICK_HINT } from "./units.js";
 import { findThinSpots, isWorthWarning, make3MF, sealedGeometry } from "./printcheck.js";
+import { outlinesFromMask, normalizeLoops, maskFromImage, autoThreshold } from "./trace.js";
 import { sliceOutlines, outlinesToSVG } from "./svgexport.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
@@ -307,24 +308,53 @@ $("#shape-search").addEventListener("keydown", (e) => {
 });
 
 // ---------- Scribble: draw an outline by hand and turn it into a 3D shape ----------
-let scribblePts = [];
+let scribblePts = []; // Spun shape: the one profile line
+let strokes = []; // Scribble: every stroke drawn, { pts, width, closed }
 let scribbleMode = "flat"; // "flat": an outline seen from above; "spin": a side profile turned around an axis
 const SPIN_AXIS = 120; // where the axis sits on the drawing area (pixels from the left)
+const SCRIBBLE_MM = 0.2; // one pixel of the drawing area is 0.2 mm, so the whole area is 72 × 60 mm
 function openScribble(mode = "flat") {
   scribbleMode = mode;
   scribblePts = [];
+  strokes = [];
   $("#scribble-title").textContent = mode === "spin" ? "Spun shape" : "Scribble";
   $("#scribble-note").textContent = mode === "spin"
     ? "Draw half of the shape's side, to the right of the dashed line. It is spun around that line into a round shape, like a vase or a bowl. Parts left of the line are ignored."
-    : "Hold the mouse button down and draw an outline. It becomes a flat 3D shape you can resize and stretch taller.";
+    : "Draw with the mouse. Lines become solid lines; a loop that ends where it started is filled in. Draw as many strokes as you like.";
+  $("#scribble-pen-row").hidden = mode === "spin";
+  $("#scribble-undo").hidden = mode === "spin";
   drawScribble();
   $("#scribble-dialog").showModal();
+}
+// a stroke that ends near where it began is a filled loop
+const strokeClosed = (pts, width) => pts.length > 6 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) <= Math.max(16, width * 1.5)
+  && pts.reduce((sum, p, i) => sum + (i ? Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0) > 40;
+// draws the strokes exactly as they will be made (used for the screen and for tracing)
+function paintStrokes(g, list, scale, fill, line) {
+  g.save();
+  g.scale(scale, scale);
+  g.lineCap = "round"; g.lineJoin = "round";
+  for (const s of list) {
+    g.lineWidth = s.width;
+    g.strokeStyle = line; g.fillStyle = fill;
+    g.beginPath();
+    if (s.pts.length === 1) { g.arc(s.pts[0][0], s.pts[0][1], s.width / 2, 0, Math.PI * 2); g.fillStyle = line; g.fill(); continue; }
+    g.moveTo(s.pts[0][0], s.pts[0][1]);
+    s.pts.forEach(([x, y]) => g.lineTo(x, y));
+    if (s.closed) { g.closePath(); g.fill(); }
+    g.stroke();
+  }
+  g.restore();
 }
 function drawScribble() {
   const c = $("#scribble-canvas"), g = c.getContext("2d");
   g.clearRect(0, 0, c.width, c.height);
   g.strokeStyle = "#dbe3ee"; g.lineWidth = 1;
   for (let i = 20; i < c.width; i += 20) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, c.height); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(c.width, i); g.stroke(); }
+  if (scribbleMode === "flat") {
+    paintStrokes(g, strokes.map((s) => ({ ...s, closed: s.closed || (s.live && strokeClosed(s.pts, s.width)) })), 1, "rgba(232,48,110,.35)", "#e8306e");
+    return;
+  }
   const spin = scribbleMode === "spin";
   if (spin) {
     g.save(); g.setLineDash([6, 5]); g.strokeStyle = "#0e5f5b"; g.lineWidth = 2;
@@ -345,16 +375,55 @@ function drawScribble() {
   const c = $("#scribble-canvas");
   let drawing = false;
   const at = (e) => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * (c.width / r.width), (e.clientY - r.top) * (c.height / r.height)]; };
-  c.addEventListener("pointerdown", (e) => { drawing = true; scribblePts = [at(e)]; try { c.setPointerCapture(e.pointerId); } catch { /* ignore */ } drawScribble(); });
+  const pen = () => Number($("#scribble-pen").value);
+  $("#scribble-pen").addEventListener("input", () => { $("#scribble-pen-mm").textContent = units.text(pen() * SCRIBBLE_MM); });
+  c.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    drawing = true;
+    if (scribbleMode === "flat") strokes.push({ pts: [at(e)], width: pen(), live: true });
+    else scribblePts = [at(e)];
+    try { c.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    drawScribble();
+  });
   c.addEventListener("pointermove", (e) => {
     if (!drawing) return;
-    const p = at(e), last = scribblePts[scribblePts.length - 1];
-    if (Math.hypot(p[0] - last[0], p[1] - last[1]) >= 4) { scribblePts.push(p); drawScribble(); }
+    const list = scribbleMode === "flat" ? strokes[strokes.length - 1].pts : scribblePts;
+    const p = at(e), last = list[list.length - 1];
+    if (Math.hypot(p[0] - last[0], p[1] - last[1]) >= 3) { list.push(p); drawScribble(); }
   });
-  c.addEventListener("pointerup", () => { drawing = false; });
-  $("#scribble-clear").addEventListener("click", () => { scribblePts = []; drawScribble(); });
+  const finish = () => {
+    if (!drawing) return;
+    drawing = false;
+    const s = strokes[strokes.length - 1];
+    if (scribbleMode === "flat" && s && s.live) { s.closed = strokeClosed(s.pts, s.width); delete s.live; }
+    drawScribble();
+  };
+  c.addEventListener("pointerup", finish);
+  c.addEventListener("pointercancel", finish);
+  $("#scribble-undo").addEventListener("click", () => { strokes.pop(); drawScribble(); });
+  $("#scribble-clear").addEventListener("click", () => { scribblePts = []; strokes = []; drawScribble(); });
   $("#scribble-done").addEventListener("click", (e) => {
     e.preventDefault();
+    if (scribbleMode === "flat") {
+      if (!strokes.length) { alert("Draw something first: hold the mouse button down and draw."); return; }
+      // paint the strokes twice as fine as on screen and trace their outline
+      const S = 2, W = c.width * S, H = c.height * S;
+      const work = document.createElement("canvas");
+      work.width = W; work.height = H;
+      const g = work.getContext("2d", { willReadFrequently: true });
+      g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+      paintStrokes(g, strokes, S, "#000", "#000");
+      const px = g.getImageData(0, 0, W, H).data;
+      const mask = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) mask[i] = px[i * 4] < 128 ? 1 : 0;
+      const loops = outlinesFromMask(mask, W, H, { eps: 1.2, rounds: 1, minArea: 8 });
+      if (!loops.length) { alert("That drawing is too small to make a shape. Try drawing bigger or with a thicker line."); return; }
+      const n = normalizeLoops(loops);
+      const mm = (v) => Math.max(1, Math.round((v / S) * SCRIBBLE_MM * 10) / 10);
+      addShape("scribble", null, { loops: n.loops, w: mm(n.spanX), d: mm(n.spanY) });
+      $("#scribble-dialog").close();
+      return;
+    }
     if (scribblePts.length < 3) { alert("Draw a shape first: hold the mouse button down and draw an outline."); return; }
     if (scribbleMode === "spin") {
       const pts = scribblePts.map(([x, y]) => [Math.max(0, x - SPIN_AXIS), y]);
@@ -365,17 +434,64 @@ function drawScribble() {
       const across = Math.max(2, Math.round(2 * maxR * k));
       addShape("spun", null, { path, w: across, d: across, h: Math.max(2, Math.round((maxY - minY) * k)) });
       $("#scribble-dialog").close();
-      return;
     }
-    const xs = scribblePts.map((p) => p[0]), ys = scribblePts.map((p) => p[1]);
-    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    const spanX = Math.max(maxX - minX, 1), spanY = Math.max(maxY - minY, 1);
-    const path = scribblePts.map(([x, y]) => [Math.round(((x - minX) / spanX) * 1000) / 1000, Math.round(((y - minY) / spanY) * 1000) / 1000]);
-    const big = 40, k = big / Math.max(spanX, spanY);
-    addShape("scribble", null, { path, w: Math.max(2, Math.round(spanX * k)), d: Math.max(2, Math.round(spanY * k)) });
-    $("#scribble-dialog").close();
   });
 })();
+
+// ---------- Pictures (PNG, JPG...): the dark parts become a flat shape ----------
+const PICTURE_TYPES = /\.(png|jpe?g|gif|webp|bmp)$/i;
+let picture = null; // { img: ImageData, name, at }
+function pictureOutlines() {
+  const { img } = picture;
+  const mask = maskFromImage(img, Number($("#picture-cut").value), $("#picture-invert").checked);
+  return outlinesFromMask(mask, img.width, img.height, { eps: 1, rounds: 1, minArea: 4 });
+}
+function drawPicturePreview() {
+  const c = $("#picture-canvas"), g = c.getContext("2d");
+  const { img } = picture;
+  g.clearRect(0, 0, c.width, c.height);
+  const k = Math.min(c.width / img.width, c.height / img.height);
+  const ox = (c.width - img.width * k) / 2, oy = (c.height - img.height * k) / 2;
+  // the picture, faint, under the shape it makes
+  const tmp = document.createElement("canvas"); tmp.width = img.width; tmp.height = img.height;
+  tmp.getContext("2d").putImageData(img, 0, 0);
+  g.globalAlpha = 0.3; g.drawImage(tmp, ox, oy, img.width * k, img.height * k); g.globalAlpha = 1;
+  const path = new Path2D();
+  for (const l of pictureOutlines()) { l.forEach(([x, y], i) => (i ? path.lineTo(ox + x * k, oy + y * k) : path.moveTo(ox + x * k, oy + y * k))); path.closePath(); }
+  g.fillStyle = "rgba(232,48,110,.6)"; g.fill(path, "evenodd");
+  g.strokeStyle = "#e8306e"; g.lineWidth = 1; g.stroke(path);
+}
+async function openPicture(file, at) {
+  let bmp;
+  try { bmp = await createImageBitmap(file); } catch { alert("That picture couldn't be opened. FiddleCraft reads PNG, JPG, GIF, WebP and BMP pictures."); return; }
+  // work on a copy no bigger than 400 pixels across: plenty of detail for a flat shape
+  const k = Math.min(1, 400 / Math.max(bmp.width, bmp.height));
+  const W = Math.max(1, Math.round(bmp.width * k)), H = Math.max(1, Math.round(bmp.height * k));
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, W, H);
+  picture = { img: g.getImageData(0, 0, W, H), name: file.name.replace(PICTURE_TYPES, "") || "Picture", at };
+  $("#picture-cut").value = String(autoThreshold(picture.img));
+  $("#picture-invert").checked = false;
+  $("#picture-size").value = String(Math.round(units.show(60) * 100) / 100);
+  drawPicturePreview();
+  $("#picture-dialog").showModal();
+}
+$("#picture-cut").addEventListener("input", () => picture && drawPicturePreview());
+$("#picture-invert").addEventListener("change", () => picture && drawPicturePreview());
+$("#picture-done").addEventListener("click", (e) => {
+  e.preventDefault();
+  if (!picture) return;
+  const loops = pictureOutlines();
+  if (!loops.length) { alert("No shape found. Move the slider, or tick “Use the light parts instead”."); return; }
+  const n = normalizeLoops(loops);
+  const longest = Math.max(1, units.read(Number($("#picture-size").value) || 60));
+  const k = longest / Math.max(n.spanX, n.spanY);
+  const r1 = (v) => Math.max(0.5, Math.round(v * 10) / 10);
+  addShape("scribble", picture.at || null, { loops: n.loops, w: r1(n.spanX * k), d: r1(n.spanY * k), h: 3, name: picture.name, color: "#2e86de" });
+  $("#picture-dialog").close();
+  picture = null;
+});
 
 function addShape(type, at, extra) {
   const def = SHAPES[type];
@@ -416,6 +532,7 @@ function removeSelected() {
 
 // ---------- Import STL models ----------
 async function importFile(file, at) {
+  if (PICTURE_TYPES.test(file.name) || /^image\/(png|jpeg|gif|webp|bmp)$/.test(file.type)) return openPicture(file, at);
   try {
     const svg = /\.svg$/i.test(file.name);
     const { id, size } = svg ? await importSVG(await file.text()) : await importSTL(await file.arrayBuffer());
@@ -431,12 +548,21 @@ async function importFile(file, at) {
     commit();
     say(`${s.name} imported (${s.w} × ${s.d} × ${s.h} mm).`);
   } catch (err) {
-    alert(err.message || "That file couldn't be imported. FiddleCraft reads STL models and SVG drawings.");
+    alert(err.message || "That file couldn't be imported. FiddleCraft reads STL models, SVG drawings and PNG or JPG pictures.");
   }
 }
 const stlPicker = document.createElement("input");
 stlPicker.type = "file";
-stlPicker.accept = ".stl,.svg,model/stl,image/svg+xml";
+stlPicker.accept = ".stl,.svg,.png,.jpg,.jpeg,.gif,.webp,.bmp,model/stl,image/svg+xml,image/png,image/jpeg";
+// "Import drawing" in the shapes panel: pictures and SVG drawings only
+const drawingPicker = document.createElement("input");
+drawingPicker.type = "file";
+drawingPicker.accept = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml";
+drawingPicker.addEventListener("change", () => {
+  const f = drawingPicker.files[0];
+  drawingPicker.value = "";
+  if (f) importFile(f);
+});
 stlPicker.addEventListener("change", () => {
   const f = stlPicker.files[0];
   stlPicker.value = "";
@@ -1728,7 +1854,7 @@ const CATEGORIES = [
   ["basic", "Basic shapes", [
     "holebox", "holecylinder", hole("sphere", "Hole sphere"), hole("cone", "Hole cone"),
     "box", "cylinder", "sphere", "scribble", "spun", "cone", "pyramid", "roof", "text",
-    { type: "import", label: "Import drawing", words: "image picture graphic svg stl file import logo",
+    { type: "import", label: "Import drawing", words: "image picture photo png jpg jpeg graphic svg file import logo trace",
       icon: '<rect x="6" y="8" width="32" height="28" rx="2" fill="#fff" stroke="#1f8fe5" stroke-width="2"/><path d="M9 33l9-11 6 7 4-4 7 8z" fill="#2fa24a"/><circle cx="30" cy="15" r="3.5" fill="#f2c230"/>' },
     "roundroof", "halfsphere", "torus", "tube", "ring", "wedge", "polygon", "icosahedron", "star", "heart", "roundedbox",
     "diamond", "paraboloid", "hexagon", "capsule", "bowl", kit("dice", "Dice", "die d6 game pips")]],
@@ -2016,7 +2142,7 @@ function holeIconOf(type, n) {
 const glyphIcon = (ch) => `<text x="22" y="34" font-size="30" font-weight="700" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" fill="#1f8fe5">${ch.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text>`;
 // add a catalogue entry to the design (at a spot, or the next free place)
 function addFromCatalog(item, at) {
-  if (item.type === "import") { stlPicker.click(); return; }
+  if (item.type === "import") { drawingPicker.click(); return; }
   if (item.type === "scribble" && !item.extra) { openScribble(); return; }
   if (item.type === "spun" && !item.extra) { openScribble("spin"); return; }
   if (item.kit) { addKit(item, at); return; }
@@ -2098,7 +2224,7 @@ filterShapes();
 host.addEventListener("dragover", (e) => e.preventDefault());
 host.addEventListener("drop", (e) => {
   e.preventDefault();
-  const file = [...(e.dataTransfer.files || [])].find((f) => /\.(stl|svg)$/i.test(f.name));
+  const file = [...(e.dataTransfer.files || [])].find((f) => /\.(stl|svg|png|jpe?g|gif|webp|bmp)$/i.test(f.name));
   if (file) { importFile(file, planePoint(e.clientX, e.clientY, 0)); return; }
   const libId = e.dataTransfer.getData("text/library");
   if (libId) {
@@ -2231,8 +2357,18 @@ Object.entries(fields).forEach(([key, sel]) => {
     if (!Number.isFinite(v)) return refresh();
     if ("wdhy".includes(key)) v = Math.round(units.read(v) * 1000) / 1000; // lengths are typed in the chosen unit
     if ("wdh".includes(key)) v = Math.max(0.5, Math.min(400, v));
+    const s = get(selected);
+    if (s && s[key] === v) return; // already applied (Enter, then leaving the box)
     setProp(key, v);
   });
+});
+// Pressing Enter in a number or text box of the shape panel applies it straight away
+// (otherwise a typed value only counts once you leave the box)
+$("#inspector").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !e.target.matches("input[type=number], input[type=text]")) return;
+  e.preventDefault();
+  e.target.dispatchEvent(new Event("change", { bubbles: true }));
+  if (e.target.select) e.target.select();
 });
 $("#shape-name").addEventListener("change", (e) => setProp("name", e.target.value.trim() || get(selected).name));
 // Text shapes: the letters update as you type; the width grows or shrinks with the number of letters

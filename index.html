@@ -16,7 +16,7 @@
     <input id="project-name" class="ebar__name" value="My first design" maxlength="60" />
     <div class="ebar__tools" role="toolbar" aria-label="Edit tools">
       <button id="open-file" title="Open a design file (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Open</span></button>
-      <button id="import-stl" title="Import a 3D model (STL file) or a drawing (SVG file)"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 17v3h16v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Import</span></button>
+      <button id="import-stl" title="Import a 3D model (STL file), a drawing (SVG file) or a picture (PNG or JPG)"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 17v3h16v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Import</span></button>
       <button id="save-file" title="Save the design as a file (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M4 4h13l3 3v13H4z M8 4v5h8V4 M8 20v-6h8v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Save</span></button>
       <button id="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 7H4V2M4 7a9 9 0 1 1-1 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Undo</span></button>
       <button id="redo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24"><path d="M15 7h5V2M20 7a9 9 0 1 0 1 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Redo</span></button>
@@ -38,9 +38,6 @@
       <div class="dims" id="dims" hidden></div>
       <div class="viewpad" role="toolbar" aria-label="Camera views">
         <button type="button" data-view="home" title="Home view (H)">Home</button>
-        <button type="button" data-view="top" title="Look from the top (1)">Top</button>
-        <button type="button" data-view="front" title="Look from the front (2)">Front</button>
-        <button type="button" data-view="side" title="Look from the side (3)">Side</button>
         <button type="button" data-view="fit" title="Zoom to fit the selection, or everything (F)">Fit</button>
         <button type="button" id="flat-view" aria-pressed="false" title="Flat view: no perspective, sizes don't shrink with distance (O)">Flat</button>
       </div>
@@ -162,7 +159,19 @@
     <h2 id="scribble-title">Scribble</h2>
     <p class="ehelp__note" id="scribble-note">Hold the mouse button down and draw an outline. It becomes a flat 3D shape you can resize and stretch taller.</p>
     <canvas id="scribble-canvas" class="scribble__canvas" width="360" height="300" aria-label="Drawing area"></canvas>
-    <form method="dialog" class="wpactions"><button type="button" class="ehelp__ok wpcancel" id="scribble-clear">Clear</button><button class="ehelp__ok wpcancel" value="cancel">Cancel</button><button class="ehelp__ok" id="scribble-done">Use this shape</button></form>
+    <label class="scribble__pen" id="scribble-pen-row">Line thickness <input type="range" id="scribble-pen" min="2" max="30" step="1" value="8" /> <span id="scribble-pen-mm">1.6 mm</span></label>
+    <form method="dialog" class="wpactions"><button type="button" class="ehelp__ok wpcancel" id="scribble-undo">Undo stroke</button><button type="button" class="ehelp__ok wpcancel" id="scribble-clear">Clear</button><button class="ehelp__ok wpcancel" value="cancel">Cancel</button><button class="ehelp__ok" id="scribble-done">Use this shape</button></form>
+  </dialog>
+  <dialog class="ehelp" id="picture-dialog" aria-labelledby="picture-title">
+    <h2 id="picture-title">Picture to shape</h2>
+    <p class="ehelp__note">The dark parts of the picture become a flat shape. Move the slider until the pink preview looks right.</p>
+    <canvas id="picture-canvas" class="scribble__canvas" width="360" height="300" aria-label="Preview of the shape"></canvas>
+    <div class="picture__opts">
+      <label>Light or dark cut-off <input type="range" id="picture-cut" min="5" max="250" step="1" value="128" /></label>
+      <label><input type="checkbox" id="picture-invert" /> Use the light parts instead</label>
+      <label>Longest side <input type="number" id="picture-size" min="5" max="400" step="1" value="60" /> <span class="u-len">mm</span></label>
+    </div>
+    <form method="dialog" class="wpactions"><button class="ehelp__ok wpcancel" value="cancel">Cancel</button><button class="ehelp__ok" id="picture-done">Use this shape</button></form>
   </dialog>
   <dialog class="ehelp" id="name-dialog" aria-labelledby="name-title">
     <form method="dialog" id="name-form">
