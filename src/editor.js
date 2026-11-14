@@ -210,6 +210,7 @@ function commit() {
 let lastState = snapshot();
 
 function restore(json) {
+  if (typeof endRotSession === "function" && rotSession) endRotSession(); // undo, redo, opening a design
   const s = JSON.parse(json);
   shapes = s.shapes;
   nextId = s.nextId;
@@ -831,6 +832,7 @@ function duplicateSelected() {
 }
 
 function select(id) {
+  if (rotSession && rotSession.id !== id) endRotSession();
   selected = id;
   picked = id ? new Set([id]) : new Set();
   refresh();
@@ -2806,7 +2808,7 @@ const liftGeo = new THREE.ConeGeometry(0.8, 1.6, 16);
 // the rotation handle: a short curved arrow with a head at each end (flat, bulging away from the shape)
 const ARROW_DARK = 0x282727, ARROW_HOT = 0xf2603a;
 const rotateGeo = (() => {
-  const R = 0.85, t = 0.15, a0 = THREE.MathUtils.degToRad(38), a1 = THREE.MathUtils.degToRad(142);
+  const R = 0.85, t = 0.065, a0 = THREE.MathUtils.degToRad(40), a1 = THREE.MathUtils.degToRad(140);
   const P = (a, r) => new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r);
   const band = new THREE.Shape();
   const n = 16;
@@ -2815,13 +2817,13 @@ const rotateGeo = (() => {
   band.closePath();
   const head = (a, dir) => {
     const mid = P(a, R), rad = P(a, 1), tan = new THREE.Vector2(-Math.sin(a) * dir, Math.cos(a) * dir);
-    const tip = mid.clone().addScaledVector(tan, 0.36);
+    const tip = mid.clone().addScaledVector(tan, 0.3);
     const sh = new THREE.Shape();
-    sh.moveTo(mid.x + rad.x * 0.3, mid.y + rad.y * 0.3); sh.lineTo(tip.x, tip.y); sh.lineTo(mid.x - rad.x * 0.3, mid.y - rad.y * 0.3); sh.closePath();
+    sh.moveTo(mid.x + rad.x * 0.2, mid.y + rad.y * 0.2); sh.lineTo(tip.x, tip.y); sh.lineTo(mid.x - rad.x * 0.2, mid.y - rad.y * 0.2); sh.closePath();
     return sh;
   };
   // a little thickness, so an arrow seen edge-on still shows as a bar
-  return new THREE.ExtrudeGeometry([band, head(a1, 1), head(a0, -1)], { depth: 0.22, bevelEnabled: false, curveSegments: 4 }).translate(0, -0.55, -0.11).rotateX(Math.PI / 2);
+  return new THREE.ExtrudeGeometry([band, head(a1, 1), head(a0, -1)], { depth: 0.12, bevelEnabled: false, curveSegments: 4 }).translate(0, -0.55, -0.06).rotateX(Math.PI / 2);
 })();
 const grabMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, depthTest: false });
 HANDLES.forEach((h) => {
@@ -2886,6 +2888,7 @@ function worldBox(s, exact) {
 }
 function placeHandles() {
   placeMirrorArrows();
+  updateProtractor(); // first, so the rotation arrows can follow the wheel
   const s = get(selected);
   handleGroup.visible = !!s && !s.locked && !s.hidden && picked.size <= 1 && !aligning && !visMode && !mirrorMode && !(drag && drag.mode === "move");
   if (!s) return;
@@ -2901,11 +2904,11 @@ function placeHandles() {
       // on the band of its own ring: turn at the front, tilt and roll at the top; while dragged it
       // slides round the band with the angle
       const key = h.rotate ? "r" : h.spin;
-      const active = drag && drag.h === h && drag.frame;
-      const f = active ? drag.frame : rotationFrame(s, key);
+      const sess = rotSession && rotSession.h === h && rotSession.id === s.id && rotSession.frame ? rotSession : null;
+      const f = sess ? sess.frame : rotationFrame(s, key);
       // tilt: top front corner of its ring; roll: top right corner (clear of the lift cone)
       let ang = key === "t" ? Math.PI / 4 : -Math.PI / 4;
-      if (active) ang = drag.a0 + deg2rad(drag.delta || 0);
+      if (sess) ang = sess.a0 + deg2rad(sess.delta || 0);
       else if (key === "r") { const o = toWorld(s, 0, 1); const d3 = new THREE.Vector3(o.x, 0, o.z); ang = Math.atan2(d3.dot(f.u2), d3.dot(f.u1)); }
       const dir = f.u1.clone().multiplyScalar(Math.cos(ang)).addScaledVector(f.u2, Math.sin(ang));
       pos = f.center.clone().addScaledVector(dir, f.radius * 0.91);
@@ -2929,7 +2932,6 @@ function placeHandles() {
       h.arrow.visible = !drag || drag.h === h || !(drag.mode === "spin");
     }
   });
-  updateProtractor();
 }
 
 // ---------- Protractor: the ring shown while turning, tilting or rolling ----------
@@ -2970,21 +2972,61 @@ function rotationFrame(s0, key) {
   const radius = reach * 1.18 + 6; // the band's outer edge, in millimetres
   return { axis, u1, u2, center, radius, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(axis, center) };
 }
+// The wheel stays up after a turn, tilt or roll until the shape loses focus (another shape is picked,
+// nothing is, the shape is moved or resized, or Esc), so the angle can be typed in its box.
+var rotSession = null; // { id, key, h, a0, start, delta, label }
+const wrap180 = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+function endRotSession() { rotSession = null; $("#rot-box").hidden = true; if (typeof protractor !== "undefined") protractor.visible = false; }
 function updateProtractor() {
-  const on = !!(drag && drag.mode === "spin" && drag.frame);
+  const sess = rotSession, s = sess && get(sess.id);
+  const dragging = !!(drag && drag.mode === "spin");
+  const on = !!(s && !s.hidden && selected === sess.id && picked.size === 1 && (!drag || dragging) && !visMode && !mirrorMode);
   protractor.visible = on;
-  if (!on) return;
-  const f = drag.frame;
+  if (!on) { if (sess && (!s || selected !== sess.id)) endRotSession(); else $("#rot-box").hidden = true; return; }
+  const f = dragging ? drag.frame : rotationFrame(s, sess.key);
+  // how far it has turned since the wheel appeared (also when the angle is typed in the panel)
+  sess.delta = dragging ? drag.delta || 0 : Math.round(wrap180((s[sess.key] || 0) - sess.start) * 10) / 10;
+  sess.frame = f;
   protractor.position.copy(f.center);
   protractor.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.u1, f.u2, f.axis));
   protractor.scale.setScalar(f.radius);
-  const turned = deg2rad(drag.delta || 0);
-  if (drag.wedgeFor !== turned) {
-    drag.wedgeFor = turned;
+  const turned = deg2rad(sess.delta);
+  if (sess.wedgeFor !== turned) {
+    sess.wedgeFor = turned;
     protoWedge.geometry.dispose();
-    protoWedge.geometry = Math.abs(turned) > 1e-6 ? new THREE.CircleGeometry(PROTO_BAND, 48, drag.a0, turned) : new THREE.BufferGeometry();
+    protoWedge.geometry = Math.abs(turned) > 1e-6 ? new THREE.CircleGeometry(PROTO_BAND, 48, sess.a0, turned) : new THREE.BufferGeometry();
   }
+  // the angle box, just outside the ring where the turn began
+  const dir = f.u1.clone().multiplyScalar(Math.cos(sess.a0)).addScaledVector(f.u2, Math.sin(sess.a0));
+  const at = f.center.clone().addScaledVector(dir, f.radius * PROTO_OUTER + 4).project(camera);
+  const box = $("#rot-box"), input = $("#rot-input");
+  box.hidden = false;
+  box.style.left = ((at.x + 1) / 2) * host.clientWidth + "px";
+  box.style.top = ((1 - at.y) / 2) * host.clientHeight + "px";
+  input.readOnly = dragging;
+  if (document.activeElement !== input) input.value = String(+sess.delta.toFixed(1));
 }
+// typing an exact angle: how far to turn from where the wheel began
+function applyRotInput() {
+  const sess = rotSession, s = sess && get(sess.id);
+  if (!s) return;
+  const v = parseFloat(String($("#rot-input").value).replace(",", ".").replace(/[^0-9.+-]/g, ""));
+  if (!Number.isFinite(v)) { $("#rot-input").value = String(sess.delta); return; }
+  s[sess.key] = Math.round(wrap180(sess.start + v) * 10) / 10;
+  $("#rot-input").value = String(+v.toFixed(1));
+  syncMesh(s);
+  refresh(true);
+  commit();
+  say(`${s.name} ${{ r: "turned", t: "tilted", l: "rolled" }[sess.key]} to ${s[sess.key]} degrees.`);
+}
+$("#rot-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); applyRotInput(); $("#rot-input").select(); }
+  if (e.key === "Escape") { e.preventDefault(); $("#rot-input").blur(); }
+});
+$("#rot-input").addEventListener("change", applyRotInput);
+$("#rot-input").addEventListener("focus", () => { $("#rot-input").select(); rotJustFocused = true; });
+$("#rot-input").addEventListener("mouseup", (e) => { if (rotJustFocused) { e.preventDefault(); rotJustFocused = false; } });
+var rotJustFocused = false;
 
 // Pick a handle by where it appears on screen (within a few pixels of the pointer), so a handle
 // hidden behind a shape is never grabbed by clicking the middle of that shape.
@@ -3098,6 +3140,7 @@ host.addEventListener("pointerdown", (e) => {
         const mmPerPx = (2 * camera.position.distanceTo(f.center) * Math.tan(deg2rad(camera.fov / 2))) / Math.max(rect.height, 1);
         drag.screen = { cx, cy, sign: facing >= 0 ? 1 : -1, a0: Math.atan2(-(e.clientY - cy), e.clientX - cx), rpx: f.radius / mmPerPx };
       }
+      rotSession = { id: s0.id, key, h, a0: drag.a0, start: s0[key] || 0, delta: 0, frame: f };
       drag.label = f.center.clone().addScaledVector(f.u1.clone().multiplyScalar(Math.cos(drag.a0)).addScaledVector(f.u2, Math.sin(drag.a0)), f.radius * PROTO_OUTER + 4);
     }
     if (h.lift) drag.plane = verticalPlaneThrough(h.mesh.position.clone());
@@ -3135,6 +3178,7 @@ host.addEventListener("pointerdown", (e) => {
     const group = pickedShapes().filter((o) => !o.locked).map((o) => ({ s: o, ox: o.x - p.x, oz: o.z - p.z }));
     if (s.locked) { say(`${s.name} is locked. Click its padlock in Your design to unlock it.`); drag = null; return; }
     group.forEach((g) => { g.dy = g.s.y - s.y; });
+    endRotSession();
     drag = { mode: "move", s, group, dx: s.x - p.x, dz: s.z - p.z, moved: false, pointer: e.pointerId, x: e.clientX, y: e.clientY, y0: s.y, gy, resting: restingOnSomething(s, group) };
     // a shape standing on a sloping or upright workplane slides along that workplane
     if (tempPlane && tempPlane.normal.y < 0.999 && standsOnTempPlane(s)) {
@@ -3147,6 +3191,7 @@ host.addEventListener("pointerdown", (e) => {
     return;
   }
   // empty space: let the view controls turn the camera; a click without moving deselects
+  endRotSession();
   drag = { mode: "empty", x: e.clientX, y: e.clientY };
 }, { capture: true });
 
@@ -3532,6 +3577,7 @@ window.addEventListener("keydown", (e) => {
   if (!mod && e.key.toLowerCase() === "m") { setMirrorMode(!mirrorMode); return; }
   if (e.key === "Escape" && visMode) { setVisMode(false); return; }
   if (e.key === "Escape" && mirrorMode) { setMirrorMode(false); return; }
+  if (e.key === "Escape" && rotSession) { endRotSession(); return; }
   if (mod && e.key.toLowerCase() === "c") { e.preventDefault(); copySelection(false); return; }
   if (mod && e.key.toLowerCase() === "x") { e.preventDefault(); copySelection(true); return; }
   if (mod && e.key.toLowerCase() === "v") { e.preventDefault(); pasteClipboard(); return; }
@@ -4520,14 +4566,8 @@ renderer.setAnimationLoop(() => {
     const sizing = drag && drag.h && ["scale", "height", "lift"].includes(drag.mode) ? drag.h : null;
     const tagsOn = sizeTags.update(s, handleGroup.visible, sizing || (drag ? null : hoverHandle), HANDLES.filter((h) => !h.sx && !h.sz || h.rotate || h.spin).map((h) => h.mesh.position));
     if (tagsOn) dims.hidden = true;
-    if (drag && drag.mode === "spin" && drag.label) {
-      const d = drag.delta || 0;
-      dims.textContent = `${d > 0 ? "" : d < 0 ? "-" : ""}${+Math.abs(d).toFixed(1)}°`;
-      v.copy(drag.label).project(camera);
-      dims.hidden = false;
-      dims.style.left = ((v.x + 1) / 2) * host.clientWidth + "px";
-      dims.style.top = ((1 - v.y) / 2) * host.clientHeight - 8 + "px";
-    } else dims.textContent = `${units.num(s.w)} × ${units.num(s.d)} × ${units.num(s.h)} ${units.label()}`;
+    if (protractor.visible) dims.hidden = true;
+    dims.textContent = `${units.num(s.w)} × ${units.num(s.d)} × ${units.num(s.h)} ${units.label()}`;
   } else {
     selBox.visible = false;
     showExtraBoxes();

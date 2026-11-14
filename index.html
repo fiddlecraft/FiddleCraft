@@ -44,6 +44,7 @@
     <div class="viewport" id="viewport" tabindex="0" aria-label="3D workplane. Use Tab to pick shapes, arrow keys to move them.">
       <div class="dims" id="dims" hidden></div>
       <div class="modehint" id="mode-hint" hidden></div>
+      <label class="rotbox" id="rot-box" hidden><input id="rot-input" type="text" inputmode="decimal" aria-label="Angle turned, in degrees: type an exact angle and press Enter" title="Type an exact angle and press Enter" /><span aria-hidden="true">°</span></label>
       <div class="viewpad" role="toolbar" aria-label="Camera views">
         <button type="button" data-view="fit" title="Zoom to fit the selection, or everything (F)">Fit</button>
         <button type="button" id="flat-view" aria-pressed="false" title="Flat view: no perspective, sizes don't shrink with distance (O)">Flat</button>
@@ -270,7 +271,7 @@
       <dt>Drag the black square on top</dt><dd>Change the height</dd>
       <dt>Point at a square, then click a number</dt><dd>Type an exact size in millimetres. Enter or Tab applies it; Esc keeps the old size</dd>
       <dt>Drag the black cone</dt><dd>Lift the shape off the workplane (D drops it back down)</dd>
-      <dt>Drag the curved arrows</dt><dd>Turn (arrow on the workplane), tilt (arrow on the side) or roll (arrow at the front). A ring appears: on its blue band the shape turns in 22.5° steps; drag further out (or hold Shift) for single degrees</dd>
+      <dt>Drag the curved arrows</dt><dd>Turn (arrow on the workplane), tilt (arrow on the side) or roll (arrow at the front). A ring appears: on its blue band the shape turns in 22.5° steps; drag further out (or hold Shift) for single degrees. The ring stays after you let go: click its angle box to type an exact angle and press Enter; it goes when you click away or press Esc</dd>
       <dt>View cube (top right)</dt><dd>Click a side, edge or corner to look from there; drag the cube to turn the view</dd>
       <dt>W (Workplane)</dt><dd>Click a face of a shape to put a workplane there; new shapes land on it, standing at right angles to the face. Press W and click empty space to go back. Shapes dragged from the panel onto a shape land on the face you drop them on</dd>
       <dt>Ruler</dt><dd>Click Ruler, then click the workplane to put it down. Pick a shape to see how far it is from the ruler, and type a number in the orange boxes to move it exactly. The × takes the ruler away</dd>
