@@ -2791,17 +2791,36 @@ HANDLES.push({ sx: 0, sz: 0, spin: "t", cursor: "grab" }); // tilt: forward and 
 HANDLES.push({ sx: 0, sz: 0, spin: "l", cursor: "grab" }); // roll: side to side
 HANDLES.push({ sx: 0, sz: 0, lift: true, cursor: "ns" });
 const liftGeo = new THREE.ConeGeometry(0.8, 1.6, 16);
-const rotateGeo = new THREE.TorusGeometry(0.9, 0.28, 8, 24, Math.PI * 1.5).rotateX(-Math.PI / 2);
-const rotateMat = new THREE.MeshBasicMaterial({ color: 0xff7a1a, depthTest: false });
+// the rotation handle: a short curved arrow with a head at each end (flat, bulging away from the shape)
+const ARROW_DARK = 0x282727, ARROW_HOT = 0xf2603a;
+const rotateGeo = (() => {
+  const R = 0.85, t = 0.15, a0 = THREE.MathUtils.degToRad(38), a1 = THREE.MathUtils.degToRad(142);
+  const P = (a, r) => new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r);
+  const band = new THREE.Shape();
+  const n = 16;
+  for (let i = 0; i <= n; i++) { const q = P(a0 + ((a1 - a0) * i) / n, R + t); if (i) band.lineTo(q.x, q.y); else band.moveTo(q.x, q.y); }
+  for (let i = n; i >= 0; i--) { const q = P(a0 + ((a1 - a0) * i) / n, R - t); band.lineTo(q.x, q.y); }
+  band.closePath();
+  const head = (a, dir) => {
+    const mid = P(a, R), rad = P(a, 1), tan = new THREE.Vector2(-Math.sin(a) * dir, Math.cos(a) * dir);
+    const tip = mid.clone().addScaledVector(tan, 0.36);
+    const sh = new THREE.Shape();
+    sh.moveTo(mid.x + rad.x * 0.3, mid.y + rad.y * 0.3); sh.lineTo(tip.x, tip.y); sh.lineTo(mid.x - rad.x * 0.3, mid.y - rad.y * 0.3); sh.closePath();
+    return sh;
+  };
+  // a little thickness, so an arrow seen edge-on still shows as a bar
+  return new THREE.ExtrudeGeometry([band, head(a1, 1), head(a0, -1)], { depth: 0.22, bevelEnabled: false, curveSegments: 4 }).translate(0, -0.55, -0.11).rotateX(Math.PI / 2);
+})();
 const grabMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, depthTest: false });
 HANDLES.forEach((h) => {
   let m;
   if (h.rotate || h.spin) {
     // an invisible disc makes the whole arrow easy to grab; the orange arrow sits on top of it
     m = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.3, 24), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
-    const arrow = new THREE.Mesh(rotateGeo, rotateMat);
+    const arrow = new THREE.Mesh(rotateGeo, new THREE.MeshBasicMaterial({ color: ARROW_DARK, depthTest: false, side: THREE.DoubleSide, transparent: true }) /* drawn after (over) the see-through protractor */);
     arrow.renderOrder = 11;
     m.add(arrow);
+    h.arrow = arrow;
   } else {
     // an invisible grab area twice the size of the small visible square or cone
     m = new THREE.Mesh(handleGeo, grabMat);
@@ -2865,28 +2884,93 @@ function placeHandles() {
       const b = worldBox(s), c = b ? b.getCenter(new THREE.Vector3()) : localPoint(s, 0, s.h, 0);
       pos = new THREE.Vector3(c.x, Math.max(b ? b.max.y : c.y, localPoint(s, 0, s.h, 0).y) + 14, c.z);
     }
-    else if (h.rotate) {
-      const o = toWorld(s, 0, s.d / 2 + 12); // just in front of the shape
-      pos = new THREE.Vector3(s.x + o.x, s.y, s.z + o.z);
-    } else if (h.spin === "t") {
-      const o = toWorld(s, s.w / 2 + 12, 0); // to the right of the shape, half way up
-      pos = new THREE.Vector3(s.x + o.x, s.y + s.h / 2, s.z + o.z);
-    } else if (h.spin === "l") {
-      const o = toWorld(s, 0, s.d / 2 + 12); // in front of the shape, half way up
-      pos = new THREE.Vector3(s.x + o.x, s.y + s.h / 2, s.z + o.z);
+    else if (h.rotate || h.spin) {
+      // on the band of its own ring: turn at the front, tilt and roll at the top; while dragged it
+      // slides round the band with the angle
+      const key = h.rotate ? "r" : h.spin;
+      const active = drag && drag.h === h && drag.frame;
+      const f = active ? drag.frame : rotationFrame(s, key);
+      // tilt: top front corner of its ring; roll: top right corner (clear of the lift cone)
+      let ang = key === "t" ? Math.PI / 4 : -Math.PI / 4;
+      if (active) ang = drag.a0 + deg2rad(drag.delta || 0);
+      else if (key === "r") { const o = toWorld(s, 0, 1); const d3 = new THREE.Vector3(o.x, 0, o.z); ang = Math.atan2(d3.dot(f.u2), d3.dot(f.u1)); }
+      const dir = f.u1.clone().multiplyScalar(Math.cos(ang)).addScaledVector(f.u2, Math.sin(ang));
+      pos = f.center.clone().addScaledVector(dir, f.radius * 0.91);
+      h.dir = dir; h.axis = f.axis;
     } else pos = localPoint(s, (h.sx * s.w) / 2, 0, (h.sz * s.d) / 2); // corners and sides of the base, tilted with the shape
     h.mesh.position.copy(pos);
     // a fixed size in screen pixels: small squares, a slightly larger turn arrow and lift cone
-    const px = h.rotate || h.spin ? 13 : h.lift ? 18 : 16; // grab areas; the visible squares are half this size (8 px)
+    const px = h.rotate || h.spin ? 19 : h.lift ? 18 : 16; // grab areas; the visible squares are half this size (8 px)
     const mmPerPixel = (2 * camera.position.distanceTo(pos) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(host.clientHeight, 1);
     const size = px * mmPerPixel;
     h.mesh.scale.setScalar(size);
     // stand the tilt and roll arrows upright, facing along the axis they turn around
-    if (h.spin === "t") h.mesh.rotation.set(0, deg2rad(s.r || 0), Math.PI / 2, "YXZ");
-    else if (h.spin === "l") h.mesh.rotation.set(Math.PI / 2, deg2rad(s.r || 0), 0, "YXZ");
-    else if (h.lift || h.rotate) h.mesh.rotation.set(0, deg2rad(s.r || 0), 0);
+    // rotation arrows lie in their ring, bulging outwards (arrow's own z: outwards, y: the ring's axis)
+    if (h.rotate || h.spin) h.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(h.axis, h.dir), h.axis, h.dir));
+    else if (h.lift) h.mesh.rotation.set(0, deg2rad(s.r || 0), 0);
     else h.mesh.quaternion.copy(shapeQuat(s));
+    if (h.arrow) {
+      const hot = drag ? drag.h === h : hoverHandle === h;
+      h.arrow.material.color.setHex(hot ? ARROW_HOT : ARROW_DARK);
+      // while one arrow is being dragged the others step aside
+      h.arrow.visible = !drag || drag.h === h || !(drag.mode === "spin");
+    }
   });
+  updateProtractor();
+}
+
+// ---------- Protractor: the ring shown while turning, tilting or rolling ----------
+// A blue band with a tick every 22.5 degrees, a thin outer circle and an orange wedge for the
+// angle turned so far. Dragging on or inside the band snaps to 22.5 degrees; further out, to 1 degree.
+const protractor = new THREE.Group();
+protractor.visible = false;
+scene.add(protractor);
+const protoMat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+const protoBand = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 96), protoMat(0x5bb8e8, 0.42));
+const protoWedge = new THREE.Mesh(new THREE.BufferGeometry(), protoMat(0xff8a5c, 0.6));
+const protoTicks = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x2f8ec4, transparent: true, opacity: 0.8, depthTest: false }));
+const protoOuter = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 128 }, (_, i) => new THREE.Vector3(Math.cos((i / 128) * Math.PI * 2) * 1.2, Math.sin((i / 128) * Math.PI * 2) * 1.2, 0))),
+  new THREE.LineBasicMaterial({ color: 0x5bb8e8, transparent: true, opacity: 0.9, depthTest: false }));
+{
+  const pts = [];
+  for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * 0.82, Math.sin(a) * 0.82, 0), new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); }
+  protoTicks.geometry.setFromPoints(pts);
+}
+[protoBand, protoTicks, protoOuter, protoWedge].forEach((m, i) => { m.renderOrder = 6 + i; protractor.add(m); });
+const PROTO_BAND = 1, PROTO_OUTER = 1.2; // band outer edge and the thin circle, in ring units
+// where the ring sits for a turn ("r"), tilt ("t") or roll ("l"): centre, two directions in its
+// plane (angles are measured from u1 towards u2) and its size
+function rotationFrame(s0, key) {
+  const turn = deg2rad(s0.r || 0);
+  let axis, u1, u2, center, reach;
+  if (key === "r") {
+    center = new THREE.Vector3(s0.x, s0.y, s0.z);
+    axis = new THREE.Vector3(0, 1, 0); u1 = new THREE.Vector3(1, 0, 0); u2 = new THREE.Vector3(0, 0, -1);
+    reach = Math.hypot(s0.w, s0.d) / 2;
+  } else {
+    axis = key === "t" ? new THREE.Vector3(Math.cos(turn), 0, -Math.sin(turn)) : new THREE.Vector3(Math.sin(turn), 0, Math.cos(turn));
+    // in a plane at the shape's right side (tilt) or front (roll); turning about the same axis anywhere is the same turn
+    center = new THREE.Vector3(s0.x, s0.y + s0.h / 2, s0.z).addScaledVector(axis, (key === "t" ? s0.w : s0.d) / 2 + 1);
+    u1 = new THREE.Vector3(0, 1, 0); u2 = new THREE.Vector3().crossVectors(axis, u1).normalize();
+    reach = key === "t" ? Math.hypot(s0.h, s0.d) / 2 : Math.hypot(s0.w, s0.h) / 2;
+  }
+  const radius = reach * 1.18 + 6; // the band's outer edge, in millimetres
+  return { axis, u1, u2, center, radius, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(axis, center) };
+}
+function updateProtractor() {
+  const on = !!(drag && drag.mode === "spin" && drag.frame);
+  protractor.visible = on;
+  if (!on) return;
+  const f = drag.frame;
+  protractor.position.copy(f.center);
+  protractor.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.u1, f.u2, f.axis));
+  protractor.scale.setScalar(f.radius);
+  const turned = deg2rad(drag.delta || 0);
+  if (drag.wedgeFor !== turned) {
+    drag.wedgeFor = turned;
+    protoWedge.geometry.dispose();
+    protoWedge.geometry = Math.abs(turned) > 1e-6 ? new THREE.CircleGeometry(PROTO_BAND, 48, drag.a0, turned) : new THREE.BufferGeometry();
+  }
 }
 
 // Pick a handle by where it appears on screen (within a few pixels of the pointer), so a handle
@@ -2970,23 +3054,26 @@ host.addEventListener("pointerdown", (e) => {
     const h = hHit.object.userData.handle;
     e.stopPropagation();
     e.preventDefault();
-    drag = { mode: h.spin ? "spin" : h.rotate ? "rotate" : h.lift ? "lift" : h.top ? "height" : "scale", h, s: s0, start: { ...s0 }, moved: false, pointer: e.pointerId };
-    if (h.spin) {
-      // measure the angle in the upright plane the arrow turns in
-      const turn = deg2rad(s0.r || 0);
-      const axis = h.spin === "t" ? new THREE.Vector3(Math.cos(turn), 0, -Math.sin(turn)) : new THREE.Vector3(Math.sin(turn), 0, Math.cos(turn));
-      const center = new THREE.Vector3(s0.x, s0.y + s0.h / 2, s0.z);
-      const u1 = new THREE.Vector3(0, 1, 0), u2 = new THREE.Vector3().crossVectors(axis, u1).normalize();
-      drag.spinPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(axis, center);
-      Object.assign(drag, { center, u1, u2, key: h.spin });
+    drag = { mode: h.spin || h.rotate ? "spin" : h.lift ? "lift" : h.top ? "height" : "scale", h, s: s0, start: { ...s0 }, moved: false, pointer: e.pointerId };
+    if (h.spin || h.rotate) {
+      // measure the angle in the plane the arrow turns in; the protractor ring shows it
+      const key = h.rotate ? "r" : h.spin;
+      const f = rotationFrame(s0, key);
+      Object.assign(drag, { frame: f, spinPlane: f.plane, center: f.center, u1: f.u1, u2: f.u2, key, delta: 0 });
       setRay(e.clientX, e.clientY);
       const hit = new THREE.Vector3();
-      const v = (ray.ray.intersectPlane(drag.spinPlane, hit) || h.mesh.position.clone()).clone().sub(center);
-      drag.a0 = Math.atan2(v.dot(u2), v.dot(u1));
-    }
-    if (h.rotate) {
-      const p = planePoint(e.clientX, e.clientY, s0.y) || new THREE.Vector3(s0.x, s0.y, s0.z + 1);
-      drag.a0 = Math.atan2(p.z - s0.z, p.x - s0.x);
+      const v = (ray.ray.intersectPlane(drag.spinPlane, hit) || h.mesh.position.clone()).clone().sub(f.center);
+      drag.a0 = Math.atan2(v.dot(f.u2), v.dot(f.u1));
+      // a ring seen almost edge-on: measure the angle round the shape's centre on screen instead
+      const toCam = camera.position.clone().sub(f.center).normalize();
+      const facing = toCam.dot(f.axis);
+      if (Math.abs(facing) < 0.35) {
+        const c2 = f.center.clone().project(camera), rect = canvas.getBoundingClientRect();
+        const cx = rect.left + ((c2.x + 1) / 2) * rect.width, cy = rect.top + ((1 - c2.y) / 2) * rect.height;
+        const mmPerPx = (2 * camera.position.distanceTo(f.center) * Math.tan(deg2rad(camera.fov / 2))) / Math.max(rect.height, 1);
+        drag.screen = { cx, cy, sign: facing >= 0 ? 1 : -1, a0: Math.atan2(-(e.clientY - cy), e.clientX - cx), rpx: f.radius / mmPerPx };
+      }
+      drag.label = f.center.clone().addScaledVector(f.u1.clone().multiplyScalar(Math.cos(drag.a0)).addScaledVector(f.u2, Math.sin(drag.a0)), f.radius * PROTO_OUTER + 4);
     }
     if (h.lift) drag.plane = verticalPlaneThrough(h.mesh.position.clone());
     // resizing works in the shape's own frame, so a tilted shape stretches along its own edges
@@ -3314,19 +3401,25 @@ window.addEventListener("pointermove", (e) => {
   } else if (drag.mode === "spin") {
     setRay(e.clientX, e.clientY);
     const hit = new THREE.Vector3();
-    if (!ray.ray.intersectPlane(drag.spinPlane, hit)) return;
+    if (!ray.ray.intersectPlane(drag.spinPlane, hit) && !drag.screen) return; // (edge-on rings measure on screen)
     const v = hit.sub(drag.center);
     const a1 = Math.atan2(v.dot(drag.u2), v.dot(drag.u1));
-    let deg = (drag.start[drag.key] || 0) + THREE.MathUtils.radToDeg(a1 - drag.a0);
-    deg = e.shiftKey ? Math.round(deg) : Math.round(deg / 15) * 15;
-    drag.s[drag.key] = ((deg % 360) + 540) % 360 - 180;
-  } else if (drag.mode === "rotate") {
-    const p = planePoint(e.clientX, e.clientY, drag.start.y);
-    if (!p) return;
-    const a1 = Math.atan2(p.z - drag.start.z, p.x - drag.start.x);
-    let deg = (drag.start.r || 0) - THREE.MathUtils.radToDeg(a1 - drag.a0);
-    deg = e.shiftKey ? Math.round(deg) : Math.round(deg / 15) * 15;
-    drag.s.r = ((deg % 360) + 540) % 360 - 180; // keep it between -180 and 180
+    // how far round from where the drag began, the short way, then snapped:
+    // on or inside the band 22.5 degree steps, further out (or with Shift) 1 degree steps
+    let raw = THREE.MathUtils.radToDeg(a1 - drag.a0);
+    let far = v.length() > drag.frame.radius * 1.04;
+    if (drag.screen) {
+      const sc = drag.screen, sa = Math.atan2(-(e.clientY - sc.cy), e.clientX - sc.cx);
+      raw = THREE.MathUtils.radToDeg(sa - sc.a0) * sc.sign;
+      far = Math.hypot(e.clientX - sc.cx, e.clientY - sc.cy) > sc.rpx * 1.04;
+    }
+    raw = ((raw % 360) + 540) % 360 - 180;
+    if (drag.unwrap !== undefined) { while (raw - drag.unwrap > 180) raw -= 360; while (raw - drag.unwrap < -180) raw += 360; }
+    drag.unwrap = raw;
+    const fine = e.shiftKey || far;
+    drag.delta = fine ? Math.round(raw) : Math.round(raw / 22.5) * 22.5;
+    const deg = (drag.start[drag.key] || 0) + drag.delta;
+    drag.s[drag.key] = Math.round((((deg % 360) + 540) % 360 - 180) * 10) / 10; // keep it between -180 and 180
   } else if (drag.mode === "lift") {
     setRay(e.clientX, e.clientY);
     const p = new THREE.Vector3();
@@ -3361,8 +3454,7 @@ window.addEventListener("pointerup", (e) => {
     if (canvas.hasPointerCapture && drag.pointer !== undefined && canvas.hasPointerCapture(drag.pointer)) canvas.releasePointerCapture(drag.pointer);
     if (drag.moved) {
       commit();
-      if (drag.mode === "spin") say(`${drag.s.name} ${drag.key === "t" ? "tilted" : "rolled"} to ${Math.round(drag.s[drag.key] || 0)} degrees.`);
-      else if (drag.mode === "rotate") say(`${drag.s.name} turned to ${Math.round(drag.s.r || 0)} degrees.`);
+      if (drag.mode === "spin") say(`${drag.s.name} ${drag.key === "t" ? "tilted" : drag.key === "l" ? "rolled" : "turned"} to ${drag.s[drag.key] || 0} degrees.`);
       else if (drag.mode !== "move") say(`${drag.s.name} is now ${units.num(drag.s.w)} by ${units.num(drag.s.d)} by ${units.num(drag.s.h)} ${units.name()}.`);
     }
   }
@@ -3370,7 +3462,7 @@ window.addEventListener("pointerup", (e) => {
 });
 window.addEventListener("pointercancel", () => { drag = null; });
 
-let hoverHandle = null; // the handle under the pointer, for the size tags
+var hoverHandle = null; // the handle under the pointer, for the size tags (var: the handles may ask before this line runs)
 function hoverCursor(e) {
   if (e.target !== canvas) { hoverHandle = null; return; }
   scene.updateMatrixWorld();
@@ -4252,7 +4344,14 @@ renderer.setAnimationLoop(() => {
     const sizing = drag && drag.h && ["scale", "height", "lift"].includes(drag.mode) ? drag.h : null;
     const tagsOn = sizeTags.update(s, handleGroup.visible, sizing || (drag ? null : hoverHandle), HANDLES.filter((h) => !h.sx && !h.sz || h.rotate || h.spin).map((h) => h.mesh.position));
     if (tagsOn) dims.hidden = true;
-    dims.textContent = drag && drag.mode === "spin" ? (drag.key === "t" ? `Tilted ${Math.round(s.t || 0)}°` : `Rolled ${Math.round(s.l || 0)}°`) : drag && drag.mode === "rotate" ? `Turned ${Math.round(s.r || 0)}°` : `${units.num(s.w)} × ${units.num(s.d)} × ${units.num(s.h)} ${units.label()}`;
+    if (drag && drag.mode === "spin" && drag.label) {
+      const d = drag.delta || 0;
+      dims.textContent = `${d > 0 ? "" : d < 0 ? "-" : ""}${+Math.abs(d).toFixed(1)}°`;
+      v.copy(drag.label).project(camera);
+      dims.hidden = false;
+      dims.style.left = ((v.x + 1) / 2) * host.clientWidth + "px";
+      dims.style.top = ((1 - v.y) / 2) * host.clientHeight - 8 + "px";
+    } else dims.textContent = `${units.num(s.w)} × ${units.num(s.d)} × ${units.num(s.h)} ${units.label()}`;
   } else {
     selBox.visible = false;
     showExtraBoxes();
