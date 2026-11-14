@@ -24,6 +24,9 @@
       <button id="group" title="Group the selected shapes (or all shapes), cutting out holes (Ctrl+G)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="10" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="11" y="11" width="10" height="10" rx="1" fill="currentColor" opacity=".5"/></svg><span>Group</span></button>
       <button id="ungroup" title="Split a group back into shapes (Ctrl+Shift+G)"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="9" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="9" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Ungroup</span></button>
       <button id="align" title="Line up the selected shapes (L)" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M4 3v18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="7" y="5" width="12" height="5" rx="1" fill="currentColor"/><rect x="7" y="14" width="7" height="5" rx="1" fill="currentColor" opacity=".6"/></svg><span>Align</span></button>
+      <button id="hide-btn" title="Hide the selected shapes (Ctrl+H)" disabled><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2h5c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Hide</span></button>
+      <button id="hide-menu-btn" class="ebar__caret" aria-haspopup="menu" aria-expanded="false" aria-controls="hide-menu" title="More hide and show options"><svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg><span class="sr-only">More hide and show options</span></button>
+      <button id="mirror-btn" title="Mirror: flip the selected shapes with the arrows (M)" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M12 2v20" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/><path d="M9 6L3 19h6z" fill="currentColor"/><path d="M15 6l6 13h-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Mirror</span></button>
       <button id="plane-tool" title="Put a workplane on any face, so new shapes land there (W)" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 15l10-5 10 5-10 5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 3v7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9 6l3-3 3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Workplane</span></button>
       <button id="ruler" title="Put a ruler on the workplane to measure and place shapes exactly"><svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Ruler</span></button>
       <button id="delete" title="Delete (Delete key)"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Delete</span></button>
@@ -33,9 +36,14 @@
     <button id="export" class="ebar__export" title="Export as 3MF, STL, OBJ, GLB or SVG">Export</button>
   </header>
 
+  <div class="emenu" id="hide-menu" role="menu" aria-label="Hide and show" hidden>
+    <button type="button" role="menuitem" id="menu-show-all"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2h5c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Show hidden shapes<kbd>Ctrl + Shift + H</kbd></span></button>
+    <button type="button" role="menuitem" id="menu-vis-mode"><svg viewBox="0 0 24 24"><path d="M6 15h4M7 18h2M8 4a4 4 0 0 0-2.4 7.2c.5.4.7 1 .7 1.6h3.4c0-.6.2-1.2.7-1.6A4 4 0 0 0 8 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M18 11h3M18.5 13.5h2M19.5 4a3 3 0 0 0-1.8 5.4c.4.3.5.7.5 1.2h2.6c0-.5.1-.9.5-1.2A3 3 0 0 0 19.5 4z" fill="#5bb8e8" stroke="#2f8ec4" stroke-width="1.2" stroke-linejoin="round"/></svg><span>Toggle shape visibility<kbd>V</kbd></span></button>
+  </div>
   <main class="ework" aria-label="3D workspace">
     <div class="viewport" id="viewport" tabindex="0" aria-label="3D workplane. Use Tab to pick shapes, arrow keys to move them.">
       <div class="dims" id="dims" hidden></div>
+      <div class="modehint" id="mode-hint" hidden></div>
       <div class="viewpad" role="toolbar" aria-label="Camera views">
         <button type="button" data-view="fit" title="Zoom to fit the selection, or everything (F)">Fit</button>
         <button type="button" id="flat-view" aria-pressed="false" title="Flat view: no perspective, sizes don't shrink with distance (O)">Flat</button>
@@ -241,7 +249,10 @@
       <dt>Shift+click</dt><dd>Select several shapes (move, copy, delete or group them together)</dd>
       <dt>Ctrl+A</dt><dd>Select every shape</dd>
       <dt>L</dt><dd>Align: with two or more shapes selected, dots appear around them. Hover a dot to preview, click it to line the shapes up (edges or middles, left–right, front–back or up–down). Click one of the shapes first to keep it still and line the others up to it. Esc finishes</dd>
+      <dt>Ctrl+H</dt><dd>Hide the selected shapes</dd>
       <dt>Ctrl+Shift+H</dt><dd>Show every hidden shape again</dd>
+      <dt>V</dt><dd>Hide and show: click shapes to hide them, or click faint hidden ones to show them again; V again to finish</dd>
+      <dt>M</dt><dd>Mirror: arrows appear round the selection; click one to flip it left–right, front–back or upside down; M again to finish</dd>
       <dt>Arrow keys</dt><dd>Move the shape 1 grid step (hold Shift for 10)</dd>
       <dt>Page Up / Page Down</dt><dd>Lift or lower the shape</dd>
       <dt>R / Shift+R</dt><dd>Turn the shape 15°</dd>

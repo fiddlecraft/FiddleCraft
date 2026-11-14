@@ -16,11 +16,31 @@ button { cursor: pointer; }
 .ebar__home svg { width: 36px; height: 36px; }
 .ebar__name { width: 220px; min-width: 0; background: transparent; border: 2px solid transparent; border-radius: 6px; color: #fff; font-size: 18px; font-weight: 600; padding: 4px 8px; }
 .ebar__name:hover, .ebar__name:focus { border-color: rgba(255,255,255,.6); background: rgba(255,255,255,.1); outline: none; }
-.ebar__tools { display: flex; gap: 4px; margin-left: auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.ebar__tools button { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 54px; height: 50px; padding: 4px 6px; background: none; border: 0; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; }
+.ebar__tools { display: flex; gap: 1px; margin-left: auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ebar__tools button { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 50px; height: 50px; padding: 4px 4px; background: none; border: 0; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; }
 .ebar__tools button:hover { background: rgba(255,255,255,.15); }
 .ebar__tools button:disabled { opacity: .45; cursor: default; background: none; }
 .ebar__tools svg { width: 22px; height: 22px; }
+.ebar__tools button.ebar__caret { min-width: 18px; width: 18px; padding: 4px 0; margin-left: -6px; justify-content: center; }
+.ebar__tools button.ebar__caret svg { width: 16px; height: 16px; }
+.ebar__tools button.ebar__caret[aria-expanded="true"] { background: rgba(255,255,255,.22); }
+/* menus that drop down from the toolbar */
+.emenu { position: fixed; z-index: 60; min-width: 250px; padding: 8px; background: #fff; border: 1px solid #d5dbe3; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); display: grid; gap: 2px; }
+.emenu[hidden] { display: none; }
+.emenu button { display: flex; align-items: flex-start; gap: 12px; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: #374151; font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+.emenu button:hover, .emenu button:focus-visible { background: #eef5fd; outline: none; }
+.emenu button:disabled { color: #b5bcc6; cursor: default; background: none; }
+.emenu svg { width: 24px; height: 24px; flex: none; color: #374151; }
+.emenu button:disabled svg { color: #c9ced6; }
+.emenu span { display: grid; gap: 4px; }
+.emenu kbd { justify-self: start; padding: 1px 8px; border-radius: 4px; background: #e8f1fc; color: #2f6db5; font: inherit; font-size: 13px; }
+.emenu button:disabled kbd { background: #f1f4f8; color: #aab3be; }
+/* a hint at the top of the 3D view while a mode is on (hide and show, mirror) */
+.modehint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 8px 16px; background: #fff; border: 1px solid #d5dbe3; border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,.08); color: #374151; font-size: 15px; white-space: nowrap; pointer-events: none; }
+.modehint[hidden] { display: none; }
+.modehint kbd { padding: 1px 7px; margin: 0 2px; border: 1px solid #9cc7f0; border-radius: 4px; background: #e8f1fc; color: #2f6db5; font: inherit; font-size: 13px; }
+/* hide-and-show mode: a soft blue glow round the 3D view */
+.viewport.is-visibility::after { content: ""; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 3px #7cc4f5, inset 0 0 28px 6px rgba(84,170,255,.45); z-index: 5; }
 .ebar__export { height: 36px; padding: 0 18px; border-radius: 50px; border: 0; background: #fff; color: var(--blue); font-size: 15px; font-weight: 700; white-space: nowrap; }
 
 .ework { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 260px; position: relative; }

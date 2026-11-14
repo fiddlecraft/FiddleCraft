@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { SHAPES, ICONS, PALETTE, paramsOf, brailleCells, brailleSize, trueProportions } from "./shapes.js";
 import { shapeGeometry, combine, combineColoured } from "./csg.js";
@@ -247,8 +248,12 @@ function buildMesh(s) {
   syncMesh(s);
 }
 
+// hide-and-show mode: hidden shapes are drawn as faint grey ghosts so they can be clicked to show again
+var visMode = false;
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, transparent: true, opacity: 0.25, depthWrite: false, roughness: 0.8 });
 function syncMesh(s) {
   const m = meshes.get(s.id);
+  if (m.material === ghostMat) m.material = m.userData.realMat; // back to its own look first
   m.geometry = shapeGeometry(s);
   const multi = !s.hole && s.type === "group" && !!s.multicolor;
   if (isPicture(s)) {
@@ -268,7 +273,11 @@ function syncMesh(s) {
   m.scale.set(s.w, s.h, s.d);
   m.position.set(s.x, s.y, s.z);
   m.rotation.set(THREE.MathUtils.degToRad(s.t || 0), THREE.MathUtils.degToRad(s.r), THREE.MathUtils.degToRad(s.l || 0), "YXZ");
-  m.visible = !s.hidden;
+  if (visMode && s.hidden) {
+    m.userData.realMat = m.material;
+    m.material = ghostMat;
+    m.visible = true;
+  } else m.visible = !s.hidden;
 }
 
 const get = (id) => shapes.find((s) => s.id === id);
@@ -2576,6 +2585,9 @@ function updateButtons() {
   $("#group").disabled = shapes.length < 2;
   $("#ungroup").disabled = get(selected)?.type !== "group";
   $("#align").disabled = picked.size < 2;
+  $("#hide-btn").disabled = !picked.size;
+  $("#mirror-btn").disabled = !picked.size && !mirrorMode;
+  if (mirrorMode && !picked.size) setMirrorMode(false); // nothing left to mirror
 }
 
 // Several shapes selected: their combined size, and with exactly two, the gap between them
@@ -2873,8 +2885,9 @@ function worldBox(s, exact) {
   return m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
 }
 function placeHandles() {
+  placeMirrorArrows();
   const s = get(selected);
-  handleGroup.visible = !!s && !s.locked && !s.hidden && picked.size <= 1 && !aligning && !(drag && drag.mode === "move");
+  handleGroup.visible = !!s && !s.locked && !s.hidden && picked.size <= 1 && !aligning && !visMode && !mirrorMode && !(drag && drag.mode === "move");
   if (!s) return;
   HANDLES.forEach((h) => {
     let pos;
@@ -3006,6 +3019,18 @@ const canvas = renderer.domElement;
 host.addEventListener("pointerdown", (e) => {
   if (e.target === canvas && document.activeElement && document.activeElement.matches("input, select, textarea")) document.activeElement.blur();
   if (e.button !== 0 || e.target !== canvas) return;
+  if (visMode) {
+    // hide-and-show mode: a click hides a shape, or shows a hidden (ghost) one again
+    e.stopPropagation(); e.preventDefault(); drag = null;
+    setRay(e.clientX, e.clientY);
+    const hit = ray.intersectObjects([...meshes.values()].filter((m) => m.visible), false)[0];
+    if (hit) { const t = get(hit.object.userData.id); if (t) { t.hidden = !t.hidden; syncMesh(t); refresh(); commit(); say(`${t.name} ${t.hidden ? "hidden" : "shown again"}.`); } }
+    return;
+  }
+  if (mirrorMode) {
+    const arrow = pickMirrorArrow(e.clientX, e.clientY);
+    if (arrow) { e.stopPropagation(); e.preventDefault(); drag = null; mirrorSelection(arrow.userData.axis); return; }
+  }
   if (placingPlane) {
     e.stopPropagation(); e.preventDefault(); drag = null;
     placePlaneAt(e.clientX, e.clientY);
@@ -3465,6 +3490,16 @@ window.addEventListener("pointercancel", () => { drag = null; });
 var hoverHandle = null; // the handle under the pointer, for the size tags (var: the handles may ask before this line runs)
 function hoverCursor(e) {
   if (e.target !== canvas) { hoverHandle = null; return; }
+  if (visMode) {
+    setRay(e.clientX, e.clientY);
+    canvas.style.cursor = ray.intersectObjects([...meshes.values()].filter((m) => m.visible), false).length ? "pointer" : "";
+    return;
+  }
+  if (mirrorMode) {
+    mirrorHover = pickMirrorArrow(e.clientX, e.clientY);
+    if (typeof wake === "function") wake(300);
+    if (mirrorHover) { canvas.style.cursor = "pointer"; return; }
+  }
   scene.updateMatrixWorld();
   if (aligning) {
     placeAlign();
@@ -3492,6 +3527,11 @@ window.addEventListener("keydown", (e) => {
   if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); selectAll(); return; }
   if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); openExport(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "h") { e.preventDefault(); showAll(); return; }
+  if (mod && !e.shiftKey && e.key.toLowerCase() === "h") { e.preventDefault(); hideSelected(); return; }
+  if (!mod && e.key.toLowerCase() === "v") { setVisMode(!visMode); return; }
+  if (!mod && e.key.toLowerCase() === "m") { setMirrorMode(!mirrorMode); return; }
+  if (e.key === "Escape" && visMode) { setVisMode(false); return; }
+  if (e.key === "Escape" && mirrorMode) { setMirrorMode(false); return; }
   if (mod && e.key.toLowerCase() === "c") { e.preventDefault(); copySelection(false); return; }
   if (mod && e.key.toLowerCase() === "x") { e.preventDefault(); copySelection(true); return; }
   if (mod && e.key.toLowerCase() === "v") { e.preventDefault(); pasteClipboard(); return; }
@@ -4075,6 +4115,139 @@ function toggleFlag(s, key) {
   const words = { hidden: ["hidden", "shown again"], locked: ["locked", "unlocked"] }[key];
   say(`${s.name} ${s[key] ? words[0] : words[1]}.`);
 }
+function hideSelected() {
+  const list = pickedShapes();
+  if (!list.length) { say("Select the shapes to hide first."); return; }
+  list.forEach((t) => { t.hidden = true; syncMesh(t); });
+  picked = new Set();
+  selected = null;
+  refresh();
+  commit();
+  say(`${list.length === 1 ? list[0].name + " is" : list.length + " shapes are"} hidden. Ctrl+Shift+H shows hidden shapes again.`);
+}
+// the hint at the top of the 3D view while a mode is on
+function modeHint(html) { const el = $("#mode-hint"); el.hidden = !html; if (html) el.innerHTML = html; }
+function setVisMode(on) {
+  if (on && mirrorMode) setMirrorMode(false);
+  visMode = on;
+  if (on) select(null);
+  host.classList.toggle("is-visibility", on);
+  modeHint(on ? "Click shapes to hide or show them. Press <kbd>V</kbd> to finish" : "");
+  shapes.forEach(syncMesh);
+  closeHideMenu();
+  refresh();
+  if (typeof wake === "function") wake(500);
+  say(on ? "Hide and show: click a shape to hide it, or a faint hidden one to show it again. Press V when you're done." : "Hide and show finished.");
+}
+
+// ---------- Mirror: arrows round the selection; click one to flip that way ----------
+var mirrorMode = false, mirrorHover = null;
+var mirrorGroup = new THREE.Group(); // var: the handles may ask before this line runs
+mirrorGroup.visible = false;
+scene.add(mirrorGroup);
+const mirrorArrowGeo = (() => {
+  // a straight arrow with a head at each end, along y, 2 units long
+  const parts = [new THREE.CylinderGeometry(0.07, 0.07, 1.3, 10), new THREE.ConeGeometry(0.24, 0.36, 16).translate(0, 0.83, 0), new THREE.ConeGeometry(0.24, 0.36, 16).rotateX(Math.PI).translate(0, -0.83, 0)];
+  return mergeGeometries(parts.map((g) => g.toNonIndexed()));
+})();
+for (const axis of ["x", "y", "z"]) {
+  const grab = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.2, 10), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
+  const look = new THREE.Mesh(mirrorArrowGeo, new THREE.MeshBasicMaterial({ color: ARROW_DARK, depthTest: false, transparent: true }));
+  look.renderOrder = 12;
+  grab.add(look);
+  grab.userData = { axis, look };
+  if (axis === "x") grab.rotation.z = Math.PI / 2;
+  if (axis === "z") grab.rotation.x = Math.PI / 2;
+  mirrorGroup.add(grab);
+}
+function mirrorBox() {
+  const box = new THREE.Box3();
+  pickedShapes().filter((t) => !t.hidden && meshes.has(t.id)).forEach((t) => box.union(worldBox(t, false)));
+  return box;
+}
+function placeMirrorArrows() {
+  if (!mirrorGroup) return;
+  mirrorGroup.visible = mirrorMode && picked.size > 0;
+  if (!mirrorGroup.visible) return;
+  const box = mirrorBox();
+  if (box.isEmpty()) { mirrorGroup.visible = false; return; }
+  const c = box.getCenter(new THREE.Vector3());
+  const mmPerPixel = (2 * camera.position.distanceTo(c) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(host.clientHeight, 1);
+  const gap = 26 * mmPerPixel;
+  for (const g of mirrorGroup.children) {
+    const a = g.userData.axis;
+    // left-right below the front, front-back beside the right, up-down at the front right corner
+    if (a === "x") g.position.set(c.x, box.min.y, box.max.z + gap);
+    if (a === "z") g.position.set(box.max.x + gap, box.min.y, c.z);
+    if (a === "y") g.position.set(box.max.x + gap * 0.8, c.y, box.max.z + gap * 0.8);
+    g.scale.setScalar(19 * mmPerPixel);
+    g.userData.look.material.color.setHex(mirrorHover === g ? ARROW_HOT : ARROW_DARK);
+  }
+}
+function pickMirrorArrow(cx, cy) {
+  if (!mirrorGroup.visible) return null;
+  setRay(cx, cy);
+  const hit = ray.intersectObjects(mirrorGroup.children, false)[0];
+  return hit ? hit.object : null;
+}
+function setMirrorMode(on) {
+  if (on && !picked.size) { say("Select the shapes to mirror first."); return; }
+  if (on && visMode) setVisMode(false);
+  mirrorMode = on;
+  mirrorHover = null;
+  $("#mirror-btn").setAttribute("aria-pressed", String(on));
+  modeHint(on ? "Click an arrow to flip the selection that way. Press <kbd>M</kbd> to finish" : "");
+  updateButtons();
+  if (typeof wake === "function") wake(500);
+  say(on ? "Mirror: click an arrow to flip the selection left to right, front to back, or upside down. Press M when you're done." : "Mirror finished.");
+}
+// Flip the selected shapes as one, across the middle of the selection (world directions)
+function mirrorSelection(axis) {
+  const list = pickedShapes().filter((t) => !t.locked);
+  if (!list.length) return;
+  const box = mirrorBox(), c = box.getCenter(new THREE.Vector3());
+  const r3m = (v) => Math.round(v * 1000) / 1000;
+  for (const t of list) {
+    const mid = localPoint(t, 0, t.h / 2, 0);
+    mid[axis] = 2 * c[axis] - mid[axis];
+    // a mirrored turn: reflect the rotation and flip the shape inside its own box
+    if (axis === "x") { t.r = -(t.r || 0); t.l = -(t.l || 0); t.fx = -(t.fx || 1); }
+    if (axis === "z") { t.r = -(t.r || 0); t.t = -(t.t || 0); t.fz = -(t.fz || 1); }
+    if (axis === "y") { t.t = -(t.t || 0); t.l = -(t.l || 0); t.fy = -(t.fy || 1); }
+    for (const k of ["r", "t", "l"]) if (Object.is(t[k], -0)) t[k] = 0;
+    const base = mid.sub(localOffset(t, 0, t.h / 2, 0));
+    t.x = r3m(base.x); t.y = r3m(base.y); t.z = r3m(base.z);
+    syncMesh(t);
+  }
+  refresh(true);
+  commit();
+  say(`${list.length === 1 ? list[0].name : list.length + " shapes"} flipped ${{ x: "left to right", z: "front to back", y: "upside down" }[axis]}.`);
+}
+
+// ---------- The Hide button's menu ----------
+function closeHideMenu() { $("#hide-menu").hidden = true; $("#hide-menu-btn").setAttribute("aria-expanded", "false"); }
+function openHideMenu() {
+  const r = $("#hide-menu-btn").getBoundingClientRect(), menu = $("#hide-menu");
+  $("#menu-show-all").disabled = !shapes.some((t) => t.hidden);
+  menu.hidden = false;
+  menu.style.left = Math.max(8, Math.min(r.left - 40, innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = r.bottom + 6 + "px";
+  $("#hide-menu-btn").setAttribute("aria-expanded", "true");
+  (menu.querySelector("button:not(:disabled)") || menu).focus();
+}
+$("#hide-btn").addEventListener("click", hideSelected);
+$("#hide-menu-btn").addEventListener("click", (e) => { e.stopPropagation(); $("#hide-menu").hidden ? openHideMenu() : closeHideMenu(); });
+$("#menu-show-all").addEventListener("click", () => { closeHideMenu(); showAll(); });
+$("#menu-vis-mode").addEventListener("click", () => { closeHideMenu(); setVisMode(!visMode); });
+$("#mirror-btn").addEventListener("click", () => setMirrorMode(!mirrorMode));
+document.addEventListener("pointerdown", (e) => { if (!$("#hide-menu").hidden && !e.target.closest("#hide-menu, #hide-menu-btn")) closeHideMenu(); });
+$("#hide-menu").addEventListener("keydown", (e) => {
+  const items = [...$("#hide-menu").querySelectorAll("button:not(:disabled)")], i = items.indexOf(document.activeElement);
+  if (e.key === "Escape") { e.stopPropagation(); closeHideMenu(); $("#hide-menu-btn").focus(); }
+  if (e.key === "ArrowDown") { e.preventDefault(); (items[i + 1] || items[0]).focus(); }
+  if (e.key === "ArrowUp") { e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
+});
+
 function showAll() {
   const hidden = shapes.filter((s) => s.hidden);
   if (!hidden.length) { say("No hidden shapes."); return; }
@@ -4142,6 +4315,9 @@ window.shapeforgeApp = {
   saveToLibrary: () => saveToLibrary(),
   workplane: () => openWorkplane(),
   showAll: () => showAll(),
+  hideSelected: () => hideSelected(),
+  visMode: () => setVisMode(!visMode),
+  mirror: () => setMirrorMode(!mirrorMode),
   importSTL: () => stlPicker.click(),
   exportWindow: () => openExport(),
   exportAs: (format, onlySelected) => exportAs(format, !!onlySelected),
