@@ -468,7 +468,8 @@ function drawScribble() {
 })();
 
 // ---------- Photos (PNG, JPG...): a flat outline of the dark parts, or shaded heights ----------
-const PICTURE_TYPES = /\.(png|jpe?g|gif|webp|bmp)$/i;
+const PICTURE_TYPES = /\.(png|jpe?g|jfif|pjpeg|pjp|gif|webp|bmp|avif|ico|heic|heif|tiff?)$/i;
+const MODEL_TYPES = /\.(stl|svg)$/i;
 const RELIEF_MAX = 150; // points along the longest side of a photo relief: plenty for printing, still quick
 let picture = null; // { img: ImageData (outline work, up to 400 px), small: ImageData (heights), name, at }
 const photoMode = () => ($("#photo-mode-relief").checked ? "relief" : $("#photo-mode-picture").checked ? "picture" : "flat");
@@ -545,10 +546,28 @@ const scaled = (bmp, max) => {
   g.drawImage(bmp, 0, 0, W, H);
   return g.getImageData(0, 0, W, H);
 };
+// Does it look like a photo (lots of in-between shades) rather than a drawing or logo (mostly light and dark)?
+function looksLikePhoto(img) {
+  const { data } = img; let mid = 0, n = 0;
+  for (let i = 0; i < data.length; i += 16) { const a = data[i + 3]; if (a < 128) continue; const l = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]; n++; if (l > 45 && l < 210) mid++; }
+  return n > 0 && mid / n > 0.3;
+}
+var lastPhotoMode = null; // the choice made last time, used again for the next photo
 async function openPicture(file, at) {
   let bmp;
-  try { bmp = await createImageBitmap(file); } catch { alert("That picture couldn't be opened. FiddleCraft reads PNG, JPG, GIF, WebP and BMP pictures."); return; }
-  picture = { img: scaled(bmp, 400), small: scaled(bmp, RELIEF_MAX), bmp, name: file.name.replace(PICTURE_TYPES, "") || "Photo", at };
+  try { bmp = await createImageBitmap(file); }
+  catch {
+    const heic = /\.(heic|heif)$/i.test(file.name) || /hei[cf]/i.test(file.type);
+    alert(heic
+      ? `"${file.name}" is an iPhone (HEIC) photo, which FiddleCraft can't read yet. Save it as a JPG or PNG first (most photo apps can export or share it as JPG), then import that.`
+      : `"${file.name}" couldn't be read as a picture. FiddleCraft reads JPG, PNG, GIF, WebP, BMP and AVIF pictures, SVG drawings and STL models.`);
+    return;
+  }
+  try {
+    picture = { img: scaled(bmp, 400), small: scaled(bmp, RELIEF_MAX), bmp, name: (file.name || "").replace(PICTURE_TYPES, "") || "Photo", at };
+  } catch (err) { alert("That picture couldn't be opened: " + (err.message || err)); return; }
+  const mode = lastPhotoMode || (looksLikePhoto(picture.img) ? "picture" : "flat");
+  $("#photo-mode-" + mode).checked = true;
   $("#picture-cut").value = String(autoThreshold(picture.img));
   $("#picture-invert").checked = false;
   $("#picture-size").value = String(Math.round(units.show(60) * 100) / 100);
@@ -578,6 +597,10 @@ function bytesToBase64(bytes) {
 $("#picture-done").addEventListener("click", (e) => {
   e.preventDefault();
   if (!picture) return;
+  try { makePhotoShape(); } catch (err) { console.error(err); alert("Sorry, that picture couldn't be made into a shape: " + (err.message || err)); }
+});
+function makePhotoShape() {
+  lastPhotoMode = photoMode();
   const longest = Math.max(1, units.read(Number($("#picture-size").value) || 60));
   const r1 = (v) => Math.max(0.5, Math.round(v * 10) / 10);
   if (photoMode() === "picture") {
@@ -616,7 +639,7 @@ $("#picture-done").addEventListener("click", (e) => {
   }
   $("#picture-dialog").close();
   picture = null;
-});
+}
 
 function addShape(type, at, extra) {
   const def = SHAPES[type];
@@ -658,7 +681,9 @@ function removeSelected() {
 
 // ---------- Import STL models ----------
 async function importFile(file, at) {
-  if (PICTURE_TYPES.test(file.name) || /^image\/(png|jpeg|gif|webp|bmp)$/.test(file.type)) return openPicture(file, at);
+  const isModel = MODEL_TYPES.test(file.name) || /svg|stl/i.test(file.type);
+  if (!isModel && (PICTURE_TYPES.test(file.name) || /^image\//.test(file.type) || !/\.\w+$/.test(file.name))) return openPicture(file, at);
+  if (!isModel) return openPicture(file, at); // unknown kind of file: if it is a picture this works, otherwise it says so
   try {
     const svg = /\.svg$/i.test(file.name);
     const { id, size } = svg ? await importSVG(await file.text()) : await importSTL(await file.arrayBuffer());
@@ -679,11 +704,11 @@ async function importFile(file, at) {
 }
 const stlPicker = document.createElement("input");
 stlPicker.type = "file";
-stlPicker.accept = ".stl,.svg,.png,.jpg,.jpeg,.gif,.webp,.bmp,model/stl,image/svg+xml,image/png,image/jpeg";
+stlPicker.accept = ".stl,.STL,.svg,.SVG,model/stl,image/*,.jpg,.JPG,.jpeg,.JPEG,.jfif,.png,.PNG,.webp,.gif,.bmp,.avif,.heic,.HEIC";
 // "Import photo" in the shapes panel: pictures and SVG drawings only
 const drawingPicker = document.createElement("input");
 drawingPicker.type = "file";
-drawingPicker.accept = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml";
+drawingPicker.accept = "image/*,.jpg,.JPG,.jpeg,.JPEG,.jfif,.png,.PNG,.webp,.gif,.bmp,.avif,.heic,.HEIC,.svg,.SVG";
 drawingPicker.addEventListener("change", () => {
   const f = drawingPicker.files[0];
   drawingPicker.value = "";
@@ -793,6 +818,15 @@ function renderLibrary() {
 $("#save-to-library").addEventListener("click", saveToLibrary);
 renderLibrary();
 
+document.addEventListener("paste", (e) => {
+  if (e.target instanceof Element && e.target.matches("input, textarea")) return;
+  const file = [...(e.clipboardData ? e.clipboardData.files : [])].find((f) => /^image\//.test(f.type));
+  if (!file) return;
+  e.preventDefault();
+  clearTimeout(pasteTimer); // a picture, not copied shapes
+  openPicture(new File([file], "Pasted picture." + (file.type.split("/")[1] || "png"), { type: file.type }));
+});
+var pasteTimer = 0;
 function pasteClipboard() {
   if (!clipboard || !clipboard.length) { say("Nothing to paste yet. Copy a shape with Ctrl+C first."); return; }
   pasteCount += 1;
@@ -2360,8 +2394,17 @@ filterShapes();
 host.addEventListener("dragover", (e) => e.preventDefault());
 host.addEventListener("drop", (e) => {
   e.preventDefault();
-  const file = [...(e.dataTransfer.files || [])].find((f) => /\.(stl|svg|png|jpe?g|gif|webp|bmp)$/i.test(f.name));
+  const file = [...(e.dataTransfer.files || [])][0];
   if (file) { importFile(file, planePoint(e.clientX, e.clientY, 0)); return; }
+  // a picture dragged from a web page arrives as an address instead of a file
+  const url = (e.dataTransfer.getData("text/uri-list") || "").split("\n").find((u) => /^(https?|data|blob|file):/i.test(u.trim()));
+  if (url && !e.dataTransfer.getData("text/shape") && !e.dataTransfer.getData("text/library")) {
+    const at = planePoint(e.clientX, e.clientY, 0);
+    fetch(url.trim()).then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+      .then((b) => openPicture(new File([b], (url.split("/").pop() || "Picture").split("?")[0], { type: b.type }), at))
+      .catch(() => alert("That picture couldn't be fetched. Save it to your computer first, then drag the file in or use Import photo."));
+    return;
+  }
   const libId = e.dataTransfer.getData("text/library");
   if (libId) {
     const item = readLibrary().find((x) => String(x.id) === libId);
@@ -3580,7 +3623,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && rotSession) { endRotSession(); return; }
   if (mod && e.key.toLowerCase() === "c") { e.preventDefault(); copySelection(false); return; }
   if (mod && e.key.toLowerCase() === "x") { e.preventDefault(); copySelection(true); return; }
-  if (mod && e.key.toLowerCase() === "v") { e.preventDefault(); pasteClipboard(); return; }
+  if (mod && e.key.toLowerCase() === "v") { clearTimeout(pasteTimer); pasteTimer = setTimeout(pasteClipboard, 40); return; } // a picture on the clipboard cancels this (see the paste event)
   if (mod && e.key.toLowerCase() === "g") { e.preventDefault(); e.shiftKey ? ungroupSelected() : groupAll(); return; }
   if (e.key === "?") { $("#help-dialog").showModal(); return; }
   if (e.key.toLowerCase() === "h" && !mod) { setView("home"); return; }

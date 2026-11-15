@@ -33,6 +33,7 @@ Get the latest version from the [Releases page](https://github.com/fiddlecraft/F
 - **Windows:** the app isn't signed with a paid certificate yet, so Windows may show "Windows protected your PC". Click **More info**, then **Run anyway**.
 - **macOS:** open the `.dmg` and drag FiddleCraft into Applications. The first time, macOS will say it can't check the app. Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to FiddleCraft, and confirm.
 - **AppImage:** make it runnable once (right-click → Properties → "Allow executing as program", or `chmod +x FiddleCraft-*.AppImage`), then double-click it.
+- **Steam Deck and other small screens:** in Desktop Mode, download the `x86_64.AppImage`, make it runnable as above and open it. FiddleCraft fills the screen and uses a compact layout at 1280 × 800 and 720p. To start it from Game Mode, add it to Steam with "Add a Non-Steam Game".
 - **Flatpak:** `flatpak install --user FiddleCraft-*.flatpak`. You need the Flathub repository set up first.
 
 ## Build it yourself

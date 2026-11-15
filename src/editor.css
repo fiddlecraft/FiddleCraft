@@ -381,3 +381,34 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .picture__opts small { color: var(--muted); font-size: 12px; }
 .photopreset { padding: 3px 10px; border: 1.5px solid var(--blue); border-radius: 50px; background: #fff; color: var(--blue); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .inspector__mode[hidden], .swatches[hidden] { display: none; }
+
+/* ---------- Short screens (720p laptops, handhelds such as the Steam Deck at 1280 × 800) ----------
+   A slimmer toolbar and tighter panels, so the 3D view keeps as much room as possible. */
+@media (max-height: 820px) {
+  .ebar { height: 48px; gap: 10px; }
+  .ebar__tools button { height: 42px; min-width: 46px; padding: 2px 3px; font-size: 11px; }
+  .ebar__tools svg { width: 19px; height: 19px; }
+  .ebar__export { height: 34px; }
+  .ework { grid-template-columns: 1fr 236px; }
+  .shapes { padding: 10px; }
+  .shapes h2 { margin-bottom: 8px; font-size: 15px; }
+  .shape-btn { padding: 5px 2px; gap: 2px; font-size: 11px; }
+  .shape-btn svg, .shape-btn img.shape-thumb { width: 36px; height: 36px; }
+  .inspector { top: 8px; left: 8px; width: 240px; padding: 9px; }
+  .inspector__mode { margin-top: 7px; }
+  .inspector__mode button { height: 30px; font-size: 13px; }
+  .libsave { height: 28px; margin-top: 7px; font-size: 12px; }
+  .swatches { gap: 4px; margin-top: 7px; }
+  .mirrorrow { margin-top: 7px; }
+  .mirrorrow button { height: 28px; }
+  .fields { gap: 6px; margin-top: 8px; }
+  .fields input { padding: 3px 7px; font-size: 14px; }
+  .viewpad { top: 104px; }
+  .wspanel { bottom: 76px; max-height: calc(100% - 88px); }
+  .estatus { height: 24px; font-size: 12px; }
+  /* dialogs never taller than the screen; long ones scroll */
+  .ehelp { padding: 16px 20px; max-height: calc(100vh - 24px); overflow-y: auto; }
+  .ehelp h2 { margin-top: 0; }
+  .scribble__canvas { width: 300px; height: 250px; }
+  .photomode label { padding: 6px 8px; }
+}

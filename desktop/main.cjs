@@ -1,5 +1,5 @@
 // FiddleCraft desktop: opens the 3D workspace in its own window, fully offline.
-const { app, BrowserWindow, protocol, net, shell, Menu, dialog } = require("electron");
+const { app, BrowserWindow, protocol, net, shell, Menu, dialog, screen } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
@@ -39,11 +39,14 @@ function designFromArgs(argv) {
 }
 
 function createWindow(designPath) {
+  // fit the screen it opens on: small screens (720p laptops, the Steam Deck at 1280 × 800) get the whole screen
+  const area = (() => { try { return screen.getPrimaryDisplay().workAreaSize; } catch { return { width: 1920, height: 1080 }; } })();
+  const small = area.width <= 1366 || area.height <= 820;
   const win = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 720,
-    minHeight: 520,
+    width: Math.min(1280, area.width),
+    height: Math.min(820, area.height),
+    minWidth: Math.min(720, area.width),
+    minHeight: Math.min(520, area.height),
     title: "FiddleCraft",
     backgroundColor: "#f9fafb",
     icon: path.join(WEB, "icons", "icon-512.png"),
@@ -51,6 +54,7 @@ function createWindow(designPath) {
     show: !process.env.SHAPEFORGE_SELFTEST, // the self-test runs without showing a window
     webPreferences: { contextIsolation: true, sandbox: true },
   });
+  if (small && !process.env.SHAPEFORGE_SELFTEST) win.maximize();
 
   // Website links leave the app and open in the normal browser
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -244,6 +248,8 @@ function createWindow(designPath) {
       } catch (e) { console.log("SELFTEST FAIL " + e.message); }
       app.exit(0);
     });
+  } else if (process.env.SHAPEFORGE_SELFTEST === "hold") {
+    // for builders: a hidden window with its own throwaway settings that stays open, to drive from DevTools
   } else if (process.env.SHAPEFORGE_SELFTEST && process.env.SHAPEFORGE_SELFTEST !== "close") {
     setTimeout(() => { console.log("SELFTEST TIMEOUT: the page did not finish loading in 30 seconds"); app.exit(2); }, 30000);
     win.webContents.once("did-finish-load", async () => {
