@@ -2838,6 +2838,9 @@ scene.add(handleGroup);
 const handleGeo = new THREE.BoxGeometry(1, 1, 1);
 const handleMat = new THREE.MeshBasicMaterial({ color: 0x282727, depthTest: false }); // black resize squares
 const rimMat = new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false });
+const whiteSquareMat = new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false });
+const darkRimMat = new THREE.MeshBasicMaterial({ color: 0x3a3d42, depthTest: false });
+const squareGeo = new THREE.PlaneGeometry(1, 1); // squares face the viewer
 const HANDLES = [
   [-1, -1, "nwse"], [1, -1, "nesw"], [1, 1, "nwse"], [-1, 1, "nesw"],
   [0, -1, "ns"], [1, 0, "ew"], [0, 1, "ns"], [-1, 0, "ew"],
@@ -2849,7 +2852,7 @@ HANDLES.push({ sx: 0, sz: 0, spin: "l", cursor: "grab" }); // roll: side to side
 HANDLES.push({ sx: 0, sz: 0, lift: true, cursor: "ns" });
 const liftGeo = new THREE.ConeGeometry(0.8, 1.6, 16);
 // the rotation handle: a short curved arrow with a head at each end (flat, bulging away from the shape)
-const ARROW_DARK = 0x282727, ARROW_HOT = 0xf2603a;
+const ARROW_DARK = 0x5f646b, ARROW_HOT = 0xf2603a; // thin grey arrows, orange-red when pointed at
 const rotateGeo = (() => {
   const R = 0.85, t = 0.065, a0 = THREE.MathUtils.degToRad(40), a1 = THREE.MathUtils.degToRad(140);
   const P = (a, r) => new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r);
@@ -2881,19 +2884,23 @@ HANDLES.forEach((h) => {
   } else {
     // an invisible grab area twice the size of the small visible square or cone
     m = new THREE.Mesh(handleGeo, grabMat);
+    // corners and the top: white squares with a dark outline; middles of the sides: small black squares
+    const corner = h.top || (h.sx && h.sz);
     const look = h.lift
       ? new THREE.Mesh(liftGeo, new THREE.MeshBasicMaterial({ color: 0x282727, depthTest: false }))
-      : new THREE.Mesh(handleGeo, h.top ? new THREE.MeshBasicMaterial({ color: 0x282727, depthTest: false }) : handleMat);
-    look.scale.setScalar(h.lift ? 0.7 : 0.5);
+      : new THREE.Mesh(squareGeo, corner ? whiteSquareMat : handleMat);
+    look.scale.setScalar(h.lift ? 0.62 : corner ? 0.62 : 0.38);
     look.renderOrder = 12;
     m.add(look);
     if (!h.lift) {
-      // a white rim (a slightly bigger white square drawn behind) keeps the black squares visible on any colour
-      const rim = new THREE.Mesh(handleGeo, rimMat);
-      rim.scale.setScalar(0.66);
+      // an outline (a slightly bigger square drawn behind): dark round the white squares, a thin white
+      // edge round the black ones so they still show on dark shapes
+      const rim = new THREE.Mesh(squareGeo, corner ? darkRimMat : rimMat);
+      rim.scale.setScalar(corner ? 0.8 : 0.5);
       rim.renderOrder = 11;
       m.add(rim);
     }
+    h.flat = !h.lift;
   }
   m.renderOrder = 10;
   m.userData.handle = h;
@@ -2929,11 +2936,34 @@ function worldBox(s, exact) {
   if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
   return m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
 }
+const guideLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0x55595f, dashSize: 1, gapSize: 1, depthTest: false }) /* solid, so the squares draw over it */);
+guideLines.renderOrder = 9;
+guideLines.visible = false;
+scene.add(guideLines);
+function placeGuides(s) {
+  guideLines.visible = !!s && handleGroup.visible;
+  if (!guideLines.visible) return;
+  const hw = s.w / 2, hd = s.d / 2;
+  const P = (x, y, z) => localPoint(s, x, y, z);
+  const pts = [
+    P(-hw, 0, -hd), P(hw, 0, -hd), P(hw, 0, -hd), P(hw, 0, hd), P(hw, 0, hd), P(-hw, 0, hd), P(-hw, 0, hd), P(-hw, 0, -hd), // base outline
+    P(-hw, 0, 0), P(hw, 0, 0), P(0, 0, -hd), P(0, 0, hd), // cross through the middle
+    P(0, 0, 0), P(0, s.h, 0), // up the middle to the height square
+  ];
+  guideLines.geometry.setFromPoints(pts);
+  guideLines.computeLineDistances();
+  // dashes a few pixels long whatever the zoom
+  const c = P(0, s.h / 2, 0);
+  const mmPerPixel = (2 * camera.position.distanceTo(c) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(host.clientHeight, 1);
+  guideLines.material.dashSize = 5 * mmPerPixel;
+  guideLines.material.gapSize = 4 * mmPerPixel;
+}
 function placeHandles() {
   placeMirrorArrows();
   updateProtractor(); // first, so the rotation arrows can follow the wheel
   const s = get(selected);
   handleGroup.visible = !!s && !s.locked && !s.hidden && picked.size <= 1 && !aligning && !visMode && !mirrorMode && !(drag && drag.mode === "move");
+  placeGuides(s && handleGroup.visible ? s : null);
   if (!s) return;
   HANDLES.forEach((h) => {
     let pos;
@@ -2967,6 +2997,7 @@ function placeHandles() {
     // rotation arrows lie in their ring, bulging outwards (arrow's own z: outwards, y: the ring's axis)
     if (h.rotate || h.spin) h.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(h.axis, h.dir), h.axis, h.dir));
     else if (h.lift) h.mesh.rotation.set(0, deg2rad(s.r || 0), 0);
+    else if (h.flat) h.mesh.quaternion.copy(camera.quaternion); // flat squares, square on to the viewer
     else h.mesh.quaternion.copy(shapeQuat(s));
     if (h.arrow) {
       const hot = drag ? drag.h === h : hoverHandle === h;
@@ -4600,7 +4631,7 @@ renderer.setAnimationLoop(() => {
   const s = get(selected);
   if (s) {
     box.setFromObject(meshes.get(s.id));
-    selBox.visible = true;
+    selBox.visible = !handleGroup.visible;
     showExtraBoxes();
     v.set((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2).project(camera);
     dims.hidden = false;
