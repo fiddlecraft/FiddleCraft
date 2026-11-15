@@ -2979,12 +2979,20 @@ function placeHandles() {
       const key = h.rotate ? "r" : h.spin;
       const sess = rotSession && rotSession.h === h && rotSession.id === s.id && rotSession.frame ? rotSession : null;
       const f = sess ? sess.frame : rotationFrame(s, key);
-      // tilt: top front corner of its ring; roll: top right corner (clear of the lift cone)
-      let ang = key === "t" ? Math.PI / 4 : -Math.PI / 4;
+      // Resting, each arrow sits just outside the shape (a fixed gap on screen): turn in front at the
+      // bottom, tilt on the right side by the back edge, roll above the top at the back edge.
+      // While the wheel is up, the arrow rides round its band.
+      let ang = key === "l" ? 0 : key === "t" ? -Math.PI / 2 : Math.PI / 2, rad = f.radius * 0.91;
       if (sess) ang = sess.a0 + deg2rad(sess.delta || 0);
-      else if (key === "r") { const o = toWorld(s, 0, 1); const d3 = new THREE.Vector3(o.x, 0, o.z); ang = Math.atan2(d3.dot(f.u2), d3.dot(f.u1)); }
+      else {
+        const mid = localPoint(s, 0, s.h / 2, 0);
+        const gap = (22 * 2 * camera.position.distanceTo(mid) * Math.tan(deg2rad(camera.fov / 2))) / Math.max(host.clientHeight, 1);
+        if (key === "r") { const o = toWorld(s, 0, 1); const d3 = new THREE.Vector3(o.x, 0, o.z); ang = Math.atan2(d3.dot(f.u2), d3.dot(f.u1)); rad = s.d / 2 + gap; }
+        else if (key === "t") rad = s.d / 2 + gap;
+        else rad = s.h / 2 + gap;
+      }
       const dir = f.u1.clone().multiplyScalar(Math.cos(ang)).addScaledVector(f.u2, Math.sin(ang));
-      pos = f.center.clone().addScaledVector(dir, f.radius * 0.91);
+      pos = f.center.clone().addScaledVector(dir, rad);
       h.dir = dir; h.axis = f.axis;
     } else pos = localPoint(s, (h.sx * s.w) / 2, 0, (h.sz * s.d) / 2); // corners and sides of the base, tilted with the shape
     h.mesh.position.copy(pos);
@@ -3038,8 +3046,8 @@ function rotationFrame(s0, key) {
     reach = Math.hypot(s0.w, s0.d) / 2;
   } else {
     axis = key === "t" ? new THREE.Vector3(Math.cos(turn), 0, -Math.sin(turn)) : new THREE.Vector3(Math.sin(turn), 0, Math.cos(turn));
-    // in a plane at the shape's right side (tilt) or front (roll); turning about the same axis anywhere is the same turn
-    center = new THREE.Vector3(s0.x, s0.y + s0.h / 2, s0.z).addScaledVector(axis, (key === "t" ? s0.w : s0.d) / 2 + 1);
+    // in a plane at the shape's right side (tilt) or back (roll); turning about the same axis anywhere is the same turn
+    center = new THREE.Vector3(s0.x, s0.y + s0.h / 2, s0.z).addScaledVector(axis, key === "t" ? s0.w / 2 + 1 : -(s0.d / 2 + 1)); // tilt: right side; roll: back
     u1 = new THREE.Vector3(0, 1, 0); u2 = new THREE.Vector3().crossVectors(axis, u1).normalize();
     reach = key === "t" ? Math.hypot(s0.h, s0.d) / 2 : Math.hypot(s0.w, s0.h) / 2;
   }
