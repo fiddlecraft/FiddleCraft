@@ -1,6 +1,6 @@
 # Builds FiddleCraft for Linux, Windows and macOS on GitHub's own computers.
 # Every push to main: the packages can be downloaded from the run's "Artifacts".
-# Pushing a version tag (for example v0.2.0): the packages are attached to a new Release.
+# Pushing a version tag (for example v0.4.0): the packages are attached to a new Release.
 name: Build
 
 on:
@@ -21,15 +21,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux (AppImage, deb, rpm, Flatpak)
-            os: ubuntu-24.04
+          - name: Linux x86_64 (AppImage, deb, rpm, tar.gz)
+            os: ubuntu-22.04
             platform: linux
-          - name: Windows (installer and portable)
+          - name: Linux ARM64 (AppImage, deb, rpm, tar.gz)
+            os: ubuntu-22.04-arm
+            platform: linux
+          - name: Windows x64 (installer and portable)
             os: windows-latest
             platform: win
+          - name: Windows ARM64 (installer and portable)
+            os: windows-latest
+            platform: win
+            target: aarch64-pc-windows-msvc
           - name: macOS (Apple silicon and Intel)
-            os: macos-15-intel # Intel Mac machines are easier to get; they build both Mac versions
+            os: macos-latest
             platform: mac
+            target: universal-apple-darwin
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -39,15 +50,22 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            desktop/package-lock.json
+            desktop-tauri/package-lock.json
 
-      - name: Linux packaging tools
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri
+          key: ${{ matrix.target || 'native' }}
+
+      - name: Linux libraries
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 org.electronjs.Electron2.BaseApp//24.08
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev file xvfb
 
       - name: Build the 3D workspace
         run: |
@@ -55,31 +73,31 @@ jobs:
           npm run build
 
       - name: Package the desktop app
-        working-directory: desktop
-        env:
-          # no paid signing certificates yet: Windows is unsigned, macOS is signed ad hoc
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        working-directory: desktop-tauri
         run: |
           npm ci
-          npm run dist:${{ matrix.platform }}
+          case "${{ matrix.platform }}" in
+            linux) npx tauri build --bundles appimage,deb,rpm ;;
+            win) npx tauri build --bundles nsis ${{ matrix.target && format('--target {0}', matrix.target) || '' }} ;;
+            mac) npx tauri build --bundles dmg --target universal-apple-darwin ;;
+          esac
+          bash package.sh ${{ matrix.target || '' }}
 
       - name: Self-test (Linux)
         if: matrix.platform == 'linux'
-        working-directory: desktop
-        run: SHAPEFORGE_SELFTEST=1 xvfb-run -a npx electron . --no-sandbox
+        working-directory: desktop-tauri
+        run: |
+          for mode in 1 close reload export; do
+            out=$(WEBKIT_DISABLE_DMABUF_RENDERER=1 SHAPEFORGE_SELFTEST=$mode SHAPEFORGE_SELFTEST_SHOW=1 xvfb-run -a target/release/fiddlecraft 2>&1 | grep SELFTEST || true)
+            echo "$out"
+            if [ -z "$out" ] || echo "$out" | grep -q "FAIL\|TIMEOUT"; then exit 1; fi
+          done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FiddleCraft-${{ matrix.platform }}
+          name: FiddleCraft-${{ matrix.platform }}-${{ matrix.target || runner.arch }}
           if-no-files-found: error
-          path: |
-            desktop/release/*.AppImage
-            desktop/release/*.deb
-            desktop/release/*.rpm
-            desktop/release/*.flatpak
-            desktop/release/*.exe
-            desktop/release/*.dmg
-            desktop/release/*.zip
+          path: desktop-tauri/release/*
 
   release:
     name: Publish the release

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "FiddleCraft",
+  "mainBinaryName": "fiddlecraft",
+  "version": "0.4.0",
+  "identifier": "io.github.fiddlecraft.FiddleCraft",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "GraphicsAndDesign",
+    "shortDescription": "Free, open-source 3D design for everyone",
+    "longDescription": "FiddleCraft is a free, open-source 3D design app: drag shapes onto the workplane, combine them, and export for 3D printing. Works fully offline.",
+    "copyright": "MIT licence",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "fiddlecraft",
+          "shapeforge"
+        ],
+        "name": "FiddleCraft design",
+        "description": "FiddleCraft design",
+        "mimeType": "application/x-fiddlecraft",
+        "role": "Editor"
+      }
+    ],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "deb": {
+        "desktopTemplate": "fiddlecraft.desktop",
+        "files": {
+          "/usr/share/mime/packages/fiddlecraft.xml": "fiddlecraft-mime.xml"
+        }
+      },
+      "rpm": {
+        "desktopTemplate": "fiddlecraft.desktop",
+        "files": {
+          "/usr/share/mime/packages/fiddlecraft.xml": "fiddlecraft-mime.xml"
+        }
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    }
+  }
+}

@@ -3783,19 +3783,23 @@ function exportSTL(onlySelected) {
   const g = sealedGeometry(combine(shown)); // seams sealed, so slicers need no repairs
   g.rotateX(Math.PI / 2); // three.js is Y-up, printers are Z-up
   const data = new STLExporter().parse(new THREE.Mesh(g), { binary: true });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([data], { type: "model/stl" }));
-  a.download = ($("#project-name").value.trim() || "design").replace(/[^\w-]+/g, "_") + (onlySelected ? "-selection" : "") + ".stl";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  download(data, "model/stl", "stl", onlySelected);
   say(shapes.some((s) => s.hole) ? "Exported, with hole shapes cut out." : "Exported.");
 }
 
 // ---------- Export window: STL for printing, OBJ and GLB keep the colours ----------
+// The desktop app saves through the computer's own Save dialog (its window can't download files)
+const FILE_KINDS = { stl: "STL model", obj: "OBJ model", glb: "GLB model", svg: "SVG drawing", "3mf": "3MF model" };
 function download(data, type, ext, onlySelected) {
+  const name = ($("#project-name").value.trim() || "design").replace(/[^\w-]+/g, "_") + (onlySelected ? "-selection" : "") + "." + ext;
+  if (window.__fiddlecraftNative) {
+    window.__fiddlecraftNative.save(data, name, FILE_KINDS[ext] || ext.toUpperCase() + " file", [ext])
+      .catch((e) => alert(String(e && e.message ? e.message : e)));
+    return;
+  }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([data], { type }));
-  a.download = ($("#project-name").value.trim() || "design").replace(/[^\w-]+/g, "_") + (onlySelected ? "-selection" : "") + "." + ext;
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
@@ -4037,6 +4041,18 @@ function openDesign(data, label) {
 async function saveFile() {
   const meshes = Object.fromEntries([...meshIds(shapes)].map((id) => [id, meshData(id)]).filter(([, b]) => b));
   const body = JSON.stringify({ app: "fiddlecraft", version: 1, name: $("#project-name").value, snap: $("#snap").value, shapes, nextId, meshes });
+  if (window.__fiddlecraftNative) {
+    try {
+      const where = await window.__fiddlecraftNative.save(body, fileName(), "FiddleCraft design", ["fiddlecraft"]);
+      if (!where) return false; // they cancelled
+      markClean();
+      say("Design saved.");
+      return true;
+    } catch (e) {
+      alert(String(e && e.message ? e.message : e));
+      return false;
+    }
+  }
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({ suggestedName: fileName(), types: [{ description: "FiddleCraft design", accept: { "application/json": [".fiddlecraft", ".json"] } }] });

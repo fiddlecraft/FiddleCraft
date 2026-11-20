@@ -1,0 +1,17 @@
+{
+  "name": "fiddlecraft-desktop-tauri",
+  "private": true,
+  "version": "0.4.0",
+  "description": "FiddleCraft desktop app (Tauri shell around the 3D workspace in ../dist)",
+  "license": "MIT",
+  "scripts": {
+    "appimage": "tauri build --bundles appimage",
+    "dist:linux": "tauri build --bundles appimage,deb,rpm",
+    "dist:win": "tauri build --bundles nsis",
+    "dist:mac": "tauri build --bundles dmg --target universal-apple-darwin",
+    "package": "bash package.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
