@@ -28,7 +28,7 @@ Get the latest version from the [Releases page](https://github.com/fiddlecraft/F
 | Fedora, openSUSE | `FiddleCraft-<version>-linux-x86_64.rpm` (or `-arm64.rpm`) |
 | Arch, CachyOS and other Linux (small download) | `FiddleCraft-<version>-linux-x86_64.tar.gz` (or `-arm64.tar.gz`) |
 
-The AppImage is about 108 MB because it carries its own web engine, so it runs on any Linux. The `.deb`, `.rpm` and `.tar.gz` are about 2.5 MB because they use the WebKitGTK web engine already on most Linux desktops (package `webkit2gtk-4.1`).
+The AppImage is about 75 MB because it carries its own web engine, so it runs on any Linux. The `.deb`, `.rpm` and `.tar.gz` are about 2.5 MB because they use the WebKitGTK web engine already on most Linux desktops (package `webkit2gtk-4.1`).
 
 **Coming from 0.3.x:** version 0.4.0 keeps its designs in a new place. To carry on with a design from an older version, open it there, choose **Save design…**, then open that file in 0.4.0.
 

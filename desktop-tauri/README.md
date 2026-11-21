@@ -32,7 +32,7 @@ Downloads, from biggest to smallest:
 
 | File | Size | Notes |
 | --- | --- | --- |
-| `FiddleCraft-0.4.0-x86_64.AppImage` | about 108 MB | runs on any Linux; carries its own WebKitGTK |
+| `FiddleCraft-0.4.0-x86_64.AppImage` | about 75 MB | runs on any Linux; carries its own WebKitGTK |
 | `FiddleCraft-0.4.0-linux-amd64.deb` / `-linux-x86_64.rpm` | about 2.5 MB | uses the system's WebKitGTK |
 | `FiddleCraft-0.4.0-linux-x86_64.tar.gz` | about 2.5 MB | any distro with `webkit2gtk-4.1`; `./install.sh` adds it to the app menu |
 
